@@ -1,0 +1,19 @@
+[package]
+name = "interp"
+version = "0.1.0"
+authors = ["nox"]
+edition = "2018"
+
+[lib]
+name = "interp"
+path = "src/lib/lib.rs"
+crate-type = ["staticlib", "rlib"]
+
+[[bin]]
+name = "interp"
+path = "src/main.rs"
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
