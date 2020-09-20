@@ -103,7 +103,7 @@ impl<K: Key, V, B: BuildHasher> DynMap<K, V, B> {
 
     h.finish()
   }
-  
+
 
   /// Get the number of pairs in a DynMap
   pub fn len (&self) -> usize { self.length }
@@ -146,38 +146,6 @@ impl<K: Key, V, B: BuildHasher> DynMap<K, V, B> {
     let hash = self.hash(k);
     let bucket_idx = self.bucket_idx(hash);
     self.find_in_bucket_impl(bucket_idx, k).map(|elem_idx| (bucket_idx, elem_idx))
-  }
-
-  fn find<Q> (&self, k: &Q) -> Maybe<(&K, &V)>
-  where Q: KeyComp<K>
-  {
-    if let Just((i, j)) = self.find_impl(k) {
-      let bucket = self.bucket(i);
-
-      unsafe {
-        let (_, (key, val)) = bucket.get_unchecked(j);
-
-        Just((key, val))
-      }
-    } else {
-      Nothing
-    }
-  }
-
-  fn find_mut<Q> (&mut self, k: &Q) -> Maybe<(&K, &mut V)>
-  where Q: KeyComp<K>
-  {
-    if let Just((i, j)) = self.find_impl(k) {
-      let bucket = self.bucket_mut(i);
-
-      unsafe {
-        let (_, (key, val)) = bucket.get_unchecked_mut(j);
-
-        Just((key, val))
-      }
-    } else {
-      Nothing
-    }
   }
 
 
@@ -243,28 +211,48 @@ impl<K: Key, V, B: BuildHasher> DynMap<K, V, B> {
   pub fn get_pair<Q> (&self, k: &Q) -> Maybe<(&K, &V)>
   where Q: KeyComp<K>
   {
-    self.find(k)
+    if let Just((i, j)) = self.find_impl(k) {
+      let bucket = self.bucket(i);
+
+      unsafe {
+        let (_, (key, val)) = bucket.get_unchecked(j);
+
+        Just((key, val))
+      }
+    } else {
+      Nothing
+    }
   }
 
   /// Get a mutable reference pair associated with a key in a DynMap
   pub fn get_pair_mut<Q> (&mut self, k: &Q) -> Maybe<(&K, &mut V)>
   where Q: KeyComp<K>
   {
-    self.find_mut(k)
+    if let Just((i, j)) = self.find_impl(k) {
+      let bucket = self.bucket_mut(i);
+
+      unsafe {
+        let (_, (key, val)) = bucket.get_unchecked_mut(j);
+
+        Just((key, val))
+      }
+    } else {
+      Nothing
+    }
   }
 
   /// Get a reference to the value associated with a key in a DynMap
   pub fn get<Q> (&self, k: &Q) -> Maybe<&V>
   where Q: KeyComp<K>
   {
-    self.find(k).map(|(_k, v)| v)
+    self.get_pair(k).map(|(_k, v)| v)
   }
 
   /// Get a mutable reference to the value associated with a key in a DynMap
   pub fn get_mut<Q> (&mut self, k: &Q) -> Maybe<&mut V>
   where Q: KeyComp<K>
   {
-    self.find_mut(k).map(|(_k, v)| v)
+    self.get_pair_mut(k).map(|(_k, v)| v)
   }
 
 
