@@ -1,8 +1,8 @@
-//! Contains an implementation of the FNV-1a hasing algorithm
+//! Contains an implementation of the FNV-1a hashing algorithm
 
 use core::hash::{ Hasher, BuildHasher };
 
-/// A Dyn/Hasher implementation for FNV-1a hashing algorithm
+/// A Hasher implementation for the FNV-1a hashing algorithm
 pub struct Fnv1a { hash: u64 }
 
 impl Fnv1a {
