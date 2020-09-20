@@ -5,6 +5,7 @@
 #![warn(missing_docs)]
 
 #![feature(
+  test,
   specialization,
   try_trait,
   trait_alias,
@@ -16,4 +17,3 @@ extern crate self as interp;
 
 pub mod core;
 pub mod prelude;
-pub mod wip;
