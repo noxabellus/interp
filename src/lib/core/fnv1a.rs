@@ -1,3 +1,5 @@
+//! Contains an implementation of the FNV-1a hasing algorithm
+
 use core::hash::{ Hasher, BuildHasher };
 
 /// A Dyn/Hasher implementation for FNV-1a hashing algorithm

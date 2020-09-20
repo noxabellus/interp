@@ -1,3 +1,5 @@
+//! Pointer arithmetic utilities
+
 /// Calculate the offset needed to align a pointer.
 ///
 /// Substitute for the code in the [rust core ptr impl](https://github.com/rust-lang/rust/blob/master/library/core/src/ptr/mod.rs#L1118-L1255);

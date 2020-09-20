@@ -1,10 +1,13 @@
-use std::{ ops, hash::{ Hash, Hasher } };
+//! Classification traits, convenience methods and wrappers for numeric values
+
+use std::{ fmt, ops, hash::{ Hash, Hasher } };
 
 pub use std::num::FpCategory;
 
 
-/// Indicates a type that represents a form of number
+/// Classification trait indicating a type that represents a form of number
 pub trait Numeric: Copy
+                 + fmt::Debug
                  + PartialEq<Self>
                  + PartialOrd<Self>
                  + ops::Add<Self, Output = Self>
@@ -21,6 +24,7 @@ pub trait Numeric: Copy
 
 impl<T> Numeric for T
 where T: Copy
+       + fmt::Debug
        + PartialEq<Self>
        + PartialOrd<Self>
        + ops::Add<Self, Output = Self>
@@ -36,7 +40,9 @@ where T: Copy
        { }
 
 
+/// Classification trait indicating a type that supports bitwise logic
 pub trait Bitwise: Copy
+                 + fmt::Debug
                  + ops::BitAnd<Self, Output = Self>
                  + ops::BitOr<Self, Output = Self>
                  + ops::BitXor<Self, Output = Self>
@@ -48,6 +54,7 @@ pub trait Bitwise: Copy
 
 impl<T> Bitwise for T
 where T: Copy
+       + fmt::Debug
        + ops::BitAnd<Self, Output = Self>
        + ops::BitOr<Self, Output = Self>
        + ops::BitXor<Self, Output = Self>
@@ -60,12 +67,15 @@ where T: Copy
 
 /// Indicates a Numeric value that does not have a sign (u8..u128, etc)
 pub trait Unsigned: Numeric { }
+
+
 impl Unsigned for u8 { }
 impl Unsigned for u16 { }
 impl Unsigned for u32 { }
 impl Unsigned for u64 { }
 impl Unsigned for u128 { }
 impl Unsigned for usize { }
+
 
 /// Indicates a Numeric value that does have a sign (i8..i128, f32, f64, etc)
 pub trait Signed: Numeric + ops::Neg<Output = Self> {
@@ -75,6 +85,7 @@ pub trait Signed: Numeric + ops::Neg<Output = Self> {
   /// Determine if a Signed Numeric value is < 0
   fn is_neg (&self) -> bool;
 }
+
 
 impl Signed for i8 {
   fn is_pos (&self) -> bool { *self >= 0 }
@@ -126,12 +137,14 @@ pub trait Abs: Sized {
   fn abs (&self) -> Self::Output;
 }
 
+
 impl<T> Abs for T where T: Signed + Sized {
   default fn abs (&self) -> Self {
     if self.is_neg() { -*self }
     else { *self }
   }
 }
+
 
 impl Abs for u8    { fn abs (&self) -> Self { *self } }
 impl Abs for u16   { fn abs (&self) -> Self { *self } }
@@ -198,6 +211,7 @@ pub trait FloatingPoint: Signed {
   fn from_bits (bits: Self::Bits) -> Self;
 }
 
+
 impl FloatingPoint for f32 {
   const NAN: Self = std::f32::NAN;
   const INF: Self = std::f32::INFINITY;
@@ -231,8 +245,28 @@ impl FloatingPoint for f64 {
 }
 
 
+/// A wrapper for using FloatingPoint Numeric values with hash maps
+///
+/// There are a few primary differences between this and an unwrapped fp value:
+/// + `PartialEq::eq` returns `true` for `NaN == NaN`
+/// + `Eq` is implemented
+/// + `Hash` is implemented (This is achieved by bitcasting to an integer)
 #[derive(Clone, Copy)]
 pub struct MapFloat<T: FloatingPoint = f64>(pub T);
+
+
+impl<T: FloatingPoint> Default for MapFloat<T>
+where T: Default
+{
+  fn default () -> Self { Self(T::default()) }
+}
+
+
+impl<T: FloatingPoint> fmt::Debug for MapFloat<T>
+{
+  fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { self.0.fmt(f) }
+}
+
 
 macro_rules! impl_maths {
   ($tn:ident, $a_tn:ident = $f:ident ($op:tt), $a_f:ident ($a_op:tt)  $(; $($rest:tt)*)?) => {
@@ -279,19 +313,21 @@ impl<T: FloatingPoint> ops::Neg for MapFloat<T> {
   fn neg (self) -> MapFloat<T> { MapFloat(-self.0) }
 }
 
+
 impl<T: FloatingPoint> PartialEq for MapFloat<T> {
   fn eq (&self, other: &Self) -> bool {
-    (self.0.is_nan() && other.0.is_nan()) || self.0 == other.0
+    (self.0.is_nan() & other.0.is_nan()) | (self.0 == other.0)
   }
 }
 
 impl<T: FloatingPoint> PartialEq<T> for MapFloat<T> {
   fn eq (&self, other: &T) -> bool {
-    (self.0.is_nan() && other.is_nan()) || self.0 == *other
+    (self.0.is_nan() & other.is_nan()) | (self.0 == *other)
   }
 }
 
 impl<T: FloatingPoint> Eq for MapFloat<T> { }
+
 
 impl<T: FloatingPoint> PartialOrd for MapFloat<T> {
   fn partial_cmp (&self, other: &Self) -> Option<std::cmp::Ordering> { self.0.partial_cmp(&other.0) }
@@ -301,11 +337,13 @@ impl<T: FloatingPoint> PartialOrd<T> for MapFloat<T> {
   fn partial_cmp (&self, other: &T) -> Option<std::cmp::Ordering> { self.0.partial_cmp(other) }
 }
 
+
 impl<T: FloatingPoint> Hash for MapFloat<T> {
   fn hash<H: Hasher> (&self, h: &mut H) {
     self.0.to_bits().hash(h)
   }
 }
+
 
 impl<T: FloatingPoint> ops::Deref for MapFloat<T> {
   type Target = T;
@@ -316,10 +354,12 @@ impl<T: FloatingPoint> ops::DerefMut for MapFloat<T> {
   fn deref_mut (&mut self) -> &mut T { &mut self.0 }
 }
 
+
 impl<T: FloatingPoint> Signed for MapFloat<T> {
   fn is_pos (&self) -> bool { self.0.is_pos() }
   fn is_neg (&self) -> bool { self.0.is_neg() }
 }
+
 
 impl<T: FloatingPoint> FloatingPoint for MapFloat<T> {
   const NAN: Self = MapFloat(T::NAN);

@@ -15,19 +15,10 @@ pub use crate::dynbuf;
 pub use crate::dynformat;
 pub use crate::pat;
 
-pub mod prelude {
-  pub use super::{
-    ptr,
-    cstr,
-    dynbuf::DynBuf,
-    dynstr::{ DynStr, ToDynStr },
-    maybe::{ Maybe, Just, Nothing },
-    outcome::{ Outcome, Succ, Fail }
-  };
-}
+
 
 mod c_test {
-  use super::prelude::*;
+  use crate::prelude::*;
   use cstr::*;
 
   

@@ -397,7 +397,7 @@ where Q: KeyComp<K>
 #[cfg(test)]
 mod test {
   use super::*;
-  use crate::core::prelude::*;
+  use crate::prelude::*;
 
   #[test]
   fn test_dynmap () {
