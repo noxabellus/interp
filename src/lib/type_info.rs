@@ -88,7 +88,7 @@ impl TypeData {
   /// # Safety
   /// Only primitive TypeData and their associated TypeKind may be directly transmuted to TypeIDs
   pub unsafe fn to_id (&self) -> TypeID {
-    transmute(self.to_kind())
+    self.to_kind().to_id()
   }
 }
 
@@ -96,6 +96,7 @@ impl TypeData {
 /// Variant documentation can be found in TypeData
 #[repr(u16)]
 #[allow(missing_docs)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TypeKind {
   Nil,
 
@@ -131,6 +132,14 @@ pub enum TypeKind {
   Userdata,
 }
 
+impl TypeKind {
+  /// Convert TypeKind to its TypeID
+  /// # Safety
+  /// Only primitive TypeData and their associated TypeKind may be directly transmuted to TypeIDs
+  pub unsafe fn to_id (self) -> TypeID {
+    transmute(self)
+  }
+}
 
 impl TypeID {
   /// Use type information to hash a ValueData.
@@ -223,3 +232,82 @@ pub struct FunctionTypeData {
 /// A unique identifier for a native type in the VM
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UserdataTypeID(pub(crate) u16);
+
+
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_type_data_to_type_kind () {
+    let td = TypeData::Nil;
+    let tk = td.to_kind();
+    assert_eq!(tk, TypeKind::Nil);
+
+    let td = TypeData::Bool;
+    let tk = td.to_kind();
+    assert_eq!(tk, TypeKind::Bool);
+
+    let td = TypeData::U8;
+    let tk = td.to_kind();
+    assert_eq!(tk, TypeKind::U8);
+
+    let td = TypeData::U16;
+    let tk = td.to_kind();
+    assert_eq!(tk, TypeKind::U16);
+
+    let td = TypeData::U32;
+    let tk = td.to_kind();
+    assert_eq!(tk, TypeKind::U32);
+
+    let td = TypeData::U64;
+    let tk = td.to_kind();
+    assert_eq!(tk, TypeKind::U64);
+
+    let td = TypeData::I8;
+    let tk = td.to_kind();
+    assert_eq!(tk, TypeKind::I8);
+
+    let td = TypeData::I16;
+    let tk = td.to_kind();
+    assert_eq!(tk, TypeKind::I16);
+
+    let td = TypeData::I32;
+    let tk = td.to_kind();
+    assert_eq!(tk, TypeKind::I32);
+
+    let td = TypeData::I64;
+    let tk = td.to_kind();
+    assert_eq!(tk, TypeKind::I64);
+
+    let td = TypeData::F32;
+    let tk = td.to_kind();
+    assert_eq!(tk, TypeKind::F32);
+
+    let td = TypeData::F64;
+    let tk = td.to_kind();
+    assert_eq!(tk, TypeKind::F64);
+
+    let td = TypeData::String;
+    let tk = td.to_kind();
+    assert_eq!(tk, TypeKind::String);
+  }
+
+  #[test]
+  fn test_value_data_comparison () {
+    let comp = unsafe { TypeKind::F32.to_id() }.get_eq_func();
+    
+    let a = ValueData { F32: f32::NAN };
+    let b = ValueData { F32: f32::NAN };
+    assert!(comp(&a, &b));
+    
+    let a = ValueData { F32: 0.0 };
+    let b = ValueData { F32: -0.0 };
+    assert!(comp(&a, &b));
+    
+    let a = ValueData { U8: 1 };
+    let b = ValueData { I8: 1 };
+    assert!(comp(&a, &b));
+  }
+}
