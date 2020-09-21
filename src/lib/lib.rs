@@ -15,5 +15,8 @@
 
 extern crate self as interp;
 
-pub mod core;
-pub mod prelude;
+pub mod type_info;
+pub mod value;
+pub mod fnv1a;
+pub mod map;
+pub mod stack;
