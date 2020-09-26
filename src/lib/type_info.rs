@@ -7,6 +7,8 @@ use std::{
 
 use super::value::ValueData;
 
+type Raw = u8;
+
 /// Describes a type for a value in the VM
 pub struct TypeInfo {
   /// The unique ID associated with a type in the VM
@@ -141,6 +143,7 @@ impl TypeKind {
   }
 }
 
+#[allow(clippy::transmute_ptr_to_ref)] // this is cleaner and more consistent than casting and dereferencing
 impl TypeID {
   /// Use type information to hash a ValueData.
   /// This is required because some ValueData variants will have uninitialized bytes,
@@ -191,6 +194,27 @@ impl TypeID {
     }
   }
 
+  /// Produce a hashing function for a specific type
+  /// # Safety
+  /// The function ptrs produced by this function are unsafe
+  pub unsafe fn get_untyped_hasher_func<H: Hasher> (&self) -> fn (*const Raw, h: &mut H) {
+    match transmute(self.0) {
+      TypeKind::Nil => |_, h| 0u8.hash(h),
+      TypeKind::F32 => |v, h| {
+        if transmute::<*const Raw, &f32>(v).is_nan() { f32::NAN.to_bits().hash(h) }
+        else { transmute::<*const Raw, &u32>(v).hash(h) }
+      },
+      TypeKind::F64 => |v, h| {
+        if transmute::<*const Raw, &f64>(v).is_nan() { f64::NAN.to_bits().hash(h) }
+        else { transmute::<*const Raw, &u64>(v).hash(h) }
+      },
+      TypeKind::U8 | TypeKind::I8 | TypeKind::Bool => |v, h|  transmute::<*const Raw, &u8>(v).hash(h),
+      TypeKind::U16 | TypeKind::I16 => |v, h| transmute::<*const Raw, &u16>(v).hash(h),
+      TypeKind::U32 | TypeKind::I32 => |v, h| transmute::<*const Raw, &u32>(v).hash(h),
+      _ => |v, h| transmute::<*const Raw, &u64>(v).hash(h),
+    }
+  }
+
 
   /// Produce a comparison function for a specific type
   #[allow(clippy::float_cmp)] // We cant afford approximate comparison for every float, and it isnt always desirable
@@ -204,6 +228,43 @@ impl TypeID {
         TypeKind::U16 | TypeKind::I16 => |a, b| a.U16 == b.U16,
         TypeKind::U32 | TypeKind::I32 => |a, b| a.U32 == b.U32,
         _ => |a, b| a.U64 == b.U64
+      }
+    }
+  }
+
+
+  /// Produce a comparison function for a specific type
+  /// # Safety
+  /// The function ptrs produced by this function are unsafe
+  #[allow(clippy::float_cmp)] // We cant afford approximate comparison for every float, and it isnt always desirable
+  pub fn get_untyped_eq_func (&self) -> fn (*const Raw, *const Raw) -> bool {
+    unsafe {
+      match transmute(self.0) {
+        TypeKind::Nil => |_,_| true,
+        TypeKind::F32 => |a, b| {
+          let (a, b) = (transmute::<*const Raw, &f32>(a), transmute::<*const Raw, &f32>(b));
+          (a.is_nan() & b.is_nan()) | (a == b)
+        },
+        TypeKind::F64 => |a, b| {
+          let (a, b) = (transmute::<*const Raw, &f64>(a), transmute::<*const Raw, &f64>(b));
+          (a.is_nan() & b.is_nan()) | (a == b)
+        },
+        TypeKind::U8 | TypeKind::I8 | TypeKind::Bool => |a, b| {
+          let (a, b) = (transmute::<*const Raw, &u8>(a), transmute::<*const Raw, &u8>(b));
+          a == b
+        },
+        TypeKind::U16 | TypeKind::I16 => |a, b| {
+          let (a, b) = (transmute::<*const Raw, &u16>(a), transmute::<*const Raw, &u16>(b));
+          a == b
+        },
+        TypeKind::U32 | TypeKind::I32 => |a, b| {
+          let (a, b) = (transmute::<*const Raw, &u32>(a), transmute::<*const Raw, &u32>(b));
+          a == b
+        },
+        _ => |a, b| {
+          let (a, b) = (transmute::<*const Raw, &u64>(a), transmute::<*const Raw, &u64>(b));
+          a == b
+        },
       }
     }
   }
@@ -232,6 +293,9 @@ pub struct FunctionTypeData {
 /// A unique identifier for a native type in the VM
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UserdataTypeID(pub(crate) u16);
+
+
+
 
 
 
