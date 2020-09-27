@@ -25,3 +25,4 @@ pub mod unsafe_vec;
 pub mod untyped_vec;
 pub mod untyped_stack;
 pub mod untyped_map;
+pub mod untyped_heap;
