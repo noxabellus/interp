@@ -1,6 +1,7 @@
 //! Garbage collected heap allocator wrapper
 
 use std::{
+  ops,
   mem::swap,
   hint::unreachable_unchecked,
   intrinsics::unlikely,
@@ -17,11 +18,98 @@ pub type MarkTraversalFn = *const fn (data_ptr: *const Raw, layout: Layout, heap
 /// The type of function used as a callback when heap allocations are being deallocated by the garbage collector
 pub type DropFn = *const fn (data_ptr: *mut Raw, layout: Layout);
 
-struct AllocData {
-  layout: Layout,
-  mark_fn: MarkTraversalFn,
-  drop_fn: DropFn,
-  mark: bool
+
+/// A VTable used for garbage collected Heap interactions
+pub struct VTable {
+  /// This function must be provided, it gives the Heap the size and alignment required by the type represented
+  pub get_layout: *const fn () -> Layout,
+  /// This function is optional, but it must be implemented if the type represented has internal pointers to garbage collected Heap allocations
+  pub mark_traverse: *const fn (*const Raw, &mut Heap),
+  /// This function is optional, but it must be implemented if the type represented has code to execute upon deallocation
+  pub handle_drop: *const fn (*mut Raw),
+}
+
+impl VTable {
+  fn get_layout (&self) -> Layout {
+    (unsafe { &*self.get_layout })()
+  }
+
+  fn mark_traverse (&self, data: *const Raw, heap: &mut Heap) {
+    if let Some(mark_traverse) = unsafe { self.mark_traverse.as_ref() } {
+      (mark_traverse)(data, heap)
+    }
+  }
+
+  fn handle_drop (&self, data: *mut Raw) {
+    if let Some(handle_drop) = unsafe { self.handle_drop.as_ref() } {
+      (handle_drop)(data)
+    }
+  }
+}
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct AllocData(u64);
+
+impl AllocData {
+  const PTR_MASK:  u64 = 0x00_00_FF_FF_FF_FF_FF_FF;
+  const FLAG_MASK: u64 = 0xFF_FF_00_00_00_00_00_00;
+  
+  fn new (vtable: *const VTable) -> Self {
+    debug_assert!(!vtable.is_null());
+    debug_assert!(!unsafe {&*vtable}.get_layout.is_null());
+    Self((vtable as u64) & Self::PTR_MASK)
+  }
+
+  fn is_marked (self) -> bool {
+    (self.0 & Self::FLAG_MASK) != 0
+  }
+
+  // fn unmark (&mut self) {
+  //   self.0 &= Self::PTR_MASK;
+  // }
+
+  fn mark (&mut self) {
+    self.0 &= ((true as u64) << 48) | Self::PTR_MASK;
+  }
+
+  fn unmarked (self) -> Self {
+    Self(self.0 & Self::PTR_MASK)
+  }
+
+  // fn marked (self) -> Self {
+  //   Self(self.0 & (((true as u64) << 48) | Self::PTR_MASK))
+  // }
+
+  fn as_ptr (self) -> *const VTable {
+    (self.0 & Self::PTR_MASK) as _
+  }
+
+  fn as_ref (self) -> &'static VTable {
+    let p = self.as_ptr();
+    unsafe { &*p }
+  }
+}
+
+
+impl From<*const VTable> for AllocData {
+  fn from (p: *const VTable) -> Self { Self::new(p) }
+}
+
+
+impl From<AllocData> for *const VTable {
+  fn from (d: AllocData) -> Self { d.as_ptr() }
+}
+
+
+impl From<AllocData> for &'static VTable {
+  fn from (d: AllocData) -> Self { d.as_ref() }
+}
+
+
+impl ops::Deref for AllocData {
+  type Target = VTable;
+  fn deref (&self) -> &VTable { self.as_ref() }
 }
 
 
@@ -38,25 +126,24 @@ impl Heap {
     Self { map: HashMap::default(), map2: HashMap::default() }
   }
 
-  /// Create a garbage collected allocation with a given layout.
-  //
-  /// This method can be used to allocate data that contains internal pointers,
-  /// which will be marked via the provided callback function during mark and sweep.
-  /// If the allocated data will never contain internal pointers, `ptr::null()` can be passed instead.
+  /// Create a garbage collected allocation with a given vtable.
   ///
-  /// If the allocated data needs to run some logic upon deallocation, the drop_fn may be provided;
-  /// Otherwise, `ptr::null()` can be passed instead.
+  /// The provided vtable must contain at least a layout method.
   ///
   /// # Safety
-  /// Caller must determine the validity of the `mark_fn` passed.
-  /// Layout is assumed to be valid.
+  /// Caller must determine the validity of the `vtable` passed.
+  /// Layout provided by the vtable is assumed to be valid.
   /// If the allocation fails, `handle_alloc_error` is called
-  pub unsafe fn alloc (&mut self, layout: Layout, mark_fn: MarkTraversalFn, drop_fn: DropFn) -> *mut Raw {
+  pub unsafe fn alloc (&mut self, vtable: *const VTable) -> *mut Raw {
+    let adata: AllocData = vtable.into();
+
+    let layout = adata.get_layout();
+
     let p = alloc(layout);
 
     if unlikely(p.is_null()) { handle_alloc_error(layout) }
 
-    self.map.insert(p, AllocData { layout, mark_fn, drop_fn, mark: false });
+    self.map.insert(p, adata);
 
     p
   }
@@ -67,8 +154,8 @@ impl Heap {
   /// Caller must determine that no other pointers to the data still live.
   /// It is UB to call this with a pointer not allocated with this Heap
   pub unsafe fn dealloc (&mut self, addr: *mut Raw) {
-    if let Some(AllocData { layout, .. }) = self.map.remove(&addr) {
-      dealloc(addr, layout)
+    if let Some(adata) = self.map.remove(&addr) {
+      dealloc(addr, adata.get_layout())
     } else {
       unreachable_unchecked()
     }
@@ -80,13 +167,11 @@ impl Heap {
   /// # Safety
   /// This is safe if all other invariants of the Heap have been maintained
   pub unsafe fn mark (&mut self, addr: *mut Raw) {
-    if let Some(&mut AllocData { ref mut mark, mark_fn, layout, .. }) = self.map.get_mut(&addr) {
-      if !*mark {
-        *mark = true;
+    if let Some(adata) = self.map.get_mut(&addr) {
+      if !adata.is_marked() {
+        adata.mark();
         
-        if let Some(mark_fn) = mark_fn.as_ref() {
-          (mark_fn)(addr, layout, self)
-        }
+        adata.clone().mark_traverse(addr, self)
       }
     }
   }
@@ -97,16 +182,13 @@ impl Heap {
   pub unsafe fn sweep (&mut self) {
     swap(&mut self.map, &mut self.map2);
 
-    for (addr, mut data) in self.map2.drain() {
-      if data.mark {
-        data.mark = false;
-        self.map.insert(addr, data);
+    for (addr, data) in self.map2.drain() {
+      if data.is_marked() {
+        self.map.insert(addr, data.unmarked());
       } else {
-        if let Some(drop_fn) = data.drop_fn.as_ref() {
-          drop_fn(addr, data.layout);
-        }
+        data.handle_drop(addr);
 
-        dealloc(addr, data.layout);
+        dealloc(addr, data.get_layout());
       }
     }
   }
