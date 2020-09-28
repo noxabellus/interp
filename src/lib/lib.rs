@@ -11,11 +11,15 @@
   trait_alias,
   associated_type_defaults,
   associated_type_bounds,
-  core_intrinsics
+  core_intrinsics,
+  const_fn, const_panic,
+  stmt_expr_attributes
 )]
 
 extern crate self as interp;
 
+mod static_assert;
+pub mod ptr;
 pub mod type_info;
 pub mod value;
 pub mod fnv1a;
@@ -25,4 +29,5 @@ pub mod unsafe_vec;
 pub mod untyped_vec;
 pub mod untyped_stack;
 pub mod untyped_map;
+pub mod valloc;
 pub mod untyped_heap;
