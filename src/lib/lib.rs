@@ -1,6 +1,9 @@
 //! wip interpreter
 
-#![allow(incomplete_features)]
+#![allow(
+  incomplete_features,
+  clippy::inconsistent_digit_grouping
+)]
 
 #![warn(missing_docs)]
 
@@ -9,25 +12,19 @@
   specialization,
   try_trait,
   trait_alias,
+  assoc_char_funcs,
   associated_type_defaults,
   associated_type_bounds,
   core_intrinsics,
-  const_fn, const_panic,
-  stmt_expr_attributes
+  const_fn, const_panic, const_fn_union,
+  stmt_expr_attributes,
+  llvm_asm
 )]
 
 extern crate self as interp;
 
 mod static_assert;
 pub mod ptr;
-pub mod type_info;
-pub mod value;
 pub mod fnv1a;
-pub mod map;
-pub mod stack;
-pub mod unsafe_vec;
-pub mod untyped_vec;
-pub mod untyped_stack;
-pub mod untyped_map;
 pub mod valloc;
-pub mod untyped_heap;
+pub mod value;

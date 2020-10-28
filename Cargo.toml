@@ -14,6 +14,10 @@ name = "interp"
 path = "src/main.rs"
 
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+"default" = ["nantag"]
+"nantag" = []
+"nantag_clear_unusable_data_bits" = ["nantag"]
+
 
 [dependencies]
