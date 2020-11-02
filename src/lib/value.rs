@@ -1,215 +1,16 @@
 //! Contains the universal Value implementation
 
 use std::{
-  any::Any,
-  collections::HashMap,
   hash::{ Hash, Hasher },
   cmp::Ordering,
   fmt::{ self, Display, Debug, Formatter }
 };
 
-// TODO: move this to type module {
-  /// The maximum number of fields a Record type can hold
-  pub const MAX_RECORD_FIELDS: usize = 32;
+use crate::{
+  object,
+  typeinfo::TypeID,
+};
 
-  /// Identifies which sub-variant of a type is represented by an object (E.g. which Record type, etc)
-  #[repr(transparent)]
-  #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-  pub struct TypeID(u16);
-// }
-
-
-// TODO: move this to object module {
-  /// Component of all Object type variants,
-  /// allowing garbage collection and type identification
-  #[repr(C)]
-  pub struct ObjectHeader {
-    type_id: TypeID,
-    next: *mut ObjectHeader,
-  }
-
-
-  /// A dynamically sized array (vec) of Values of the same type
-  #[repr(C)]
-  pub struct ArrayObj {
-    header: ObjectHeader,
-    data: Vec<Value>
-  }
-
-  impl PartialEq for ArrayObj {
-    fn eq (&self, other: &Self) -> bool {
-      self.header.type_id == other.header.type_id && self.data == other.data
-    }
-  }
-
-  impl Eq for ArrayObj { }
-
-  impl Ord for ArrayObj {
-    fn cmp (&self, other: &Self) -> Ordering {
-      let mut base = self.header.type_id.cmp(&other.header.type_id);
-
-      if base == Ordering::Equal {
-        base = base.then(self.data.cmp(&other.data));
-      }
-
-      base
-    }
-  }
-
-  impl PartialOrd for ArrayObj {
-    fn partial_cmp (&self, other: &Self) -> Option<Ordering> {
-      Some(self.cmp(other))
-    }
-  }
-
-  impl Hash for ArrayObj {
-    fn hash<H: Hasher> (&self, h: &mut H) {
-      self.header.type_id.hash(h);
-      self.data.hash(h);
-    }
-  }
-
-
-  /// A hashmap from values of one type to values of another or the same type
-  #[repr(C)]
-  pub struct MapObj {
-    header: ObjectHeader,
-    data: HashMap<Value, Value>
-  }
-
-  impl PartialEq for MapObj {
-    fn eq (&self, other: &Self) -> bool {
-      self.header.type_id == other.header.type_id && self.data == other.data
-    }
-  }
-
-  impl Eq for MapObj { }
-
-  impl Ord for MapObj {
-    fn cmp (&self, other: &Self) -> Ordering {
-      // No way to order two maps by value because even containing the same key/value pairs, they may not iterate in the same order
-      self.header.type_id.cmp(&other.header.type_id).then((self as *const MapObj).cmp(&(other as *const MapObj)))
-    }
-  }
-
-  impl PartialOrd for MapObj {
-    fn partial_cmp (&self, other: &Self) -> Option<Ordering> {
-      Some(self.cmp(other))
-    }
-  }
-
-  impl Hash for MapObj {
-    fn hash<H: Hasher> (&self, h: &mut H) {
-      self.header.type_id.hash(h);
-      // Unstable key/value order makes hashing by value problematic
-      (self as *const MapObj).hash(h);
-    }
-  }
-
-
-  /// Utf8-encoded string
-  #[repr(C)]
-  pub struct StringObj {
-    header: ObjectHeader,
-    data: String
-  }
-
-  impl PartialEq for StringObj {
-    fn eq (&self, other: &Self) -> bool {
-      self.data == other.data
-    }
-  }
-
-  impl Eq for StringObj { }
-
-  impl Ord for StringObj {
-    fn cmp (&self, other: &Self) -> Ordering {
-      self.data.cmp(&other.data)
-    }
-  }
-
-  impl PartialOrd for StringObj {
-    fn partial_cmp (&self, other: &Self) -> Option<Ordering> {
-      Some(self.cmp(other))
-    }
-  }
-
-  impl Hash for StringObj {
-    fn hash<H: Hasher> (&self, h: &mut H) {
-      self.data.hash(h)
-    }
-  }
-
-  
-  /// A collection of values of various (predefined) types
-  #[repr(C)]
-  pub struct RecordObj {
-    header: ObjectHeader,
-    num_fields: usize,
-    fields: [Value; MAX_RECORD_FIELDS]
-  }
-
-  impl PartialEq for RecordObj {
-    fn eq (&self, other: &Self) -> bool {
-      if other.header.type_id != self.header.type_id { return false }
-
-      for i in 0..self.num_fields {
-        if self.fields[i] != other.fields[i] { return false }
-      }
-
-      true
-    }
-  }
-
-  impl Eq for RecordObj { }
-
-  impl Ord for RecordObj {
-    fn cmp (&self, other: &Self) -> Ordering {
-      let mut base = self.header.type_id.cmp(&other.header.type_id);
-
-      if base == Ordering::Equal {
-        for i in 0..self.num_fields {
-          base = base.then(self.fields[i].cmp(&other.fields[i]))
-        }
-      }
-
-      base
-    }
-  }
-
-  impl PartialOrd for RecordObj {
-    fn partial_cmp (&self, other: &Self) -> Option<Ordering> {
-      Some(self.cmp(other))
-    }
-  }
-
-  impl Hash for RecordObj {
-    fn hash<H: Hasher> (&self, h: &mut H) {
-      self.header.type_id.hash(h);
-
-      for i in 0..self.num_fields {
-        self.fields[i].hash(h)
-      }
-    }
-  }
-
-
-  /// A free function or closure
-  #[repr(C)]
-  pub struct FunctionObj {
-    header: ObjectHeader,
-    // ...
-  }
-
-
-  /// Wrapper for native data
-  #[repr(C)]
-  pub struct UserdataObj {
-    header: ObjectHeader,
-    data: Box<dyn Any>
-  }
-
-// }
 
 
 const SIGN_MASK: u64 = 0b_1_00000000000_0_000_000000000000000000000000000000000000000000000000;
@@ -217,7 +18,7 @@ const SIGN_MASK: u64 = 0b_1_00000000000_0_000_0000000000000000000000000000000000
 macro_rules! tda { ($expr: expr) => { ($expr << 48u64) }; }
 macro_rules! tdb { ($expr: expr) => { tda!($expr) | SIGN_MASK }; }
 
-/// Indicates which variant of data is held by a nan-tagged Value
+/// Indicates which kind of type of data is held by a Value
 #[repr(u64)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[allow(missing_docs)]
@@ -228,6 +29,7 @@ pub enum TypeDiscriminator {
   Character = tda!(2),
   Boolean = tda!(3),
   Nil = tda!(4),
+  TypeID = tda!(5),
 
   Record = tdb!(1),
   Array = tdb!(2),
@@ -236,6 +38,7 @@ pub enum TypeDiscriminator {
   Function = tdb!(5),
 
   Userdata = tdb!(6),
+  Foreign = tdb!(7),
 }
 
 impl Display for TypeDiscriminator {
@@ -246,12 +49,14 @@ impl Display for TypeDiscriminator {
       Self::Character => "Character",
       Self::Boolean => "Boolean",
       Self::Nil => "Nil",
+      Self::TypeID => "TypeID",
       Self::Record => "Record",
       Self::Array => "Array",
       Self::Map => "Map",
       Self::String => "String",
       Self::Function => "Function",
       Self::Userdata => "Userdata",
+      Self::Foreign => "Foreign",
     })
   }
 }
@@ -336,6 +141,9 @@ mod internal {
     /// Determine if a Value is of type `Nil`
     pub const fn is_nil (&self) -> bool { self.is_td(TypeDiscriminator::Nil) }
 
+    /// Determine if a Value is of type `TypeID`
+    pub const fn is_type_id (&self) -> bool { self.is_td(TypeDiscriminator::TypeID) }
+
     /// Determine if a Value is of type `Record`
     pub const fn is_record (&self) -> bool { self.is_td(TypeDiscriminator::Record) }
 
@@ -353,6 +161,9 @@ mod internal {
 
     /// Determine if a Value is of type `Userdata`
     pub const fn is_userdata (&self) -> bool { self.is_td(TypeDiscriminator::Userdata) }
+
+    /// Determine if a Value is of type `Foreign`
+    pub const fn is_foreign (&self) -> bool { self.is_td(TypeDiscriminator::Foreign) }
 
 
     /// Extract the internal `Real` in a Value
@@ -375,35 +186,45 @@ mod internal {
     /// Does not check that the Value actually contains the designated type
     pub unsafe fn as_boolean_unchecked (&self) -> bool { self.get_data_segment() == 1 }
 
+    /// Extract the internal `Type` in a Value
+    /// # Safety
+    /// Does not check that the Value actually contains the designated type
+    pub unsafe fn as_type_id_unchecked (&self) -> TypeID { TypeID(self.get_data_segment() as u16) }
+
     /// Extract the internal `Record` in a Value
     /// # Safety
     /// Does not check that the Value actually contains the designated type
-    pub unsafe fn as_record_unchecked (&self) -> *mut RecordObj { self.get_data_segment() as _ }
+    pub unsafe fn as_record_unchecked (&self) -> *mut object::Record { self.get_data_segment() as _ }
 
     /// Extract the internal `Array` in a Value
     /// # Safety
     /// Does not check that the Value actually contains the designated type
-    pub unsafe fn as_array_unchecked (&self) -> *mut ArrayObj { self.get_data_segment() as _ }
+    pub unsafe fn as_array_unchecked (&self) -> *mut object::Array { self.get_data_segment() as _ }
 
     /// Extract the internal `Map` in a Value
     /// # Safety
     /// Does not check that the Value actually contains the designated type
-    pub unsafe fn as_map_unchecked (&self) -> *mut MapObj { self.get_data_segment() as _ }
+    pub unsafe fn as_map_unchecked (&self) -> *mut object::Map { self.get_data_segment() as _ }
 
     /// Extract the internal `String` in a Value
     /// # Safety
     /// Does not check that the Value actually contains the designated type
-    pub unsafe fn as_string_unchecked (&self) -> *mut StringObj { self.get_data_segment() as _ }
+    pub unsafe fn as_string_unchecked (&self) -> *mut object::String { self.get_data_segment() as _ }
 
     /// Extract the internal `Function` in a Value
     /// # Safety
     /// Does not check that the Value actually contains the designated type
-    pub unsafe fn as_function_unchecked (&self) -> *mut FunctionObj { self.get_data_segment() as _ }
+    pub unsafe fn as_function_unchecked (&self) -> *mut object::Function { self.get_data_segment() as _ }
 
     /// Extract the internal `Userdata` in a Value
     /// # Safety
     /// Does not check that the Value actually contains the designated type
-    pub unsafe fn as_userdata_unchecked (&self) -> *mut UserdataObj { self.get_data_segment() as _ }
+    pub unsafe fn as_userdata_unchecked (&self) -> *mut object::Userdata { self.get_data_segment() as _ }
+
+    /// Extract the internal `Foreign` in a Value
+    /// # Safety
+    /// Does not check that the Value actually contains the designated type
+    pub unsafe fn as_foreign_unchecked (&self) -> *mut object::Foreign { self.get_data_segment() as _ }
 
 
     /// Extract the internal `Real` in a Value
@@ -418,23 +239,29 @@ mod internal {
     /// Extract the internal `Boolean` in a Value
     pub fn as_boolean (&self) -> Option<bool> { if self.is_boolean() { Some(unsafe { self.as_boolean_unchecked() }) } else { None } }
 
+    /// Extract the internal `TypeID` in a Value
+    pub fn as_type_id (&self) -> Option<TypeID> { if self.is_type_id() { Some(unsafe { self.as_type_id_unchecked() }) } else { None } }
+
     /// Extract the internal `Record` in a Value
-    pub fn as_record (&self) -> Option<*mut RecordObj> { if self.is_record() { Some(unsafe { self.as_record_unchecked() }) } else { None } }
+    pub fn as_record (&self) -> Option<*mut object::Record> { if self.is_record() { Some(unsafe { self.as_record_unchecked() }) } else { None } }
 
     /// Extract the internal `Array` in a Value
-    pub fn as_array (&self) -> Option<*mut ArrayObj> { if self.is_array() { Some(unsafe { self.as_array_unchecked() }) } else { None } }
+    pub fn as_array (&self) -> Option<*mut object::Array> { if self.is_array() { Some(unsafe { self.as_array_unchecked() }) } else { None } }
 
     /// Extract the internal `Map` in a Value
-    pub fn as_map (&self) -> Option<*mut MapObj> { if self.is_map() { Some(unsafe { self.as_map_unchecked() }) } else { None } }
+    pub fn as_map (&self) -> Option<*mut object::Map> { if self.is_map() { Some(unsafe { self.as_map_unchecked() }) } else { None } }
 
     /// Extract the internal `String` in a Value
-    pub fn as_string (&self) -> Option<*mut StringObj> { if self.is_string() { Some(unsafe { self.as_string_unchecked() }) } else { None } }
+    pub fn as_string (&self) -> Option<*mut object::String> { if self.is_string() { Some(unsafe { self.as_string_unchecked() }) } else { None } }
 
     /// Extract the internal `Function` in a Value
-    pub fn as_function (&self) -> Option<*mut FunctionObj> { if self.is_function() { Some(unsafe { self.as_function_unchecked() }) } else { None } }
+    pub fn as_function (&self) -> Option<*mut object::Function> { if self.is_function() { Some(unsafe { self.as_function_unchecked() }) } else { None } }
 
     /// Extract the internal `Userdata` in a Value
-    pub fn as_userdata (&self) -> Option<*mut UserdataObj> { if self.is_userdata() { Some(unsafe { self.as_userdata_unchecked() }) } else { None } }
+    pub fn as_userdata (&self) -> Option<*mut object::Userdata> { if self.is_userdata() { Some(unsafe { self.as_userdata_unchecked() }) } else { None } }
+
+    /// Extract the internal `Foreign` in a Value
+    pub fn as_foreign (&self) -> Option<*mut object::Foreign> { if self.is_foreign() { Some(unsafe { self.as_foreign_unchecked() }) } else { None } }
 
 
     /// Create a Value wrapping for data of `Real` type
@@ -452,23 +279,29 @@ mod internal {
     /// Create a Value wrapping for data of `Nil` type
     pub fn from_nil () -> Self { Self(Self::NAN_MASK | (TypeDiscriminator::Nil as u64)) }
 
+    /// Create a Value wrapping for data of `TypeID` type
+    pub fn from_type_id (data: TypeID) -> Self { convert_data!(data.0, TypeDiscriminator::TypeID) }
+
     /// Create a Value wrapping for data of `Record` type
-    pub fn from_record (data: *mut RecordObj) -> Self { convert_data!(data, TypeDiscriminator::Record) }
+    pub fn from_record (data: *mut object::Record) -> Self { convert_data!(data, TypeDiscriminator::Record) }
 
     /// Create a Value wrapping for data of `Array` type
-    pub fn from_array (data: *mut ArrayObj) -> Self { convert_data!(data, TypeDiscriminator::Array) }
+    pub fn from_array (data: *mut object::Array) -> Self { convert_data!(data, TypeDiscriminator::Array) }
 
     /// Create a Value wrapping for data of `Map` type
-    pub fn from_map (data: *mut MapObj) -> Self { convert_data!(data, TypeDiscriminator::Map) }
+    pub fn from_map (data: *mut object::Map) -> Self { convert_data!(data, TypeDiscriminator::Map) }
 
     /// Create a Value wrapping for data of `String` type
-    pub fn from_string (data: *mut StringObj) -> Self { convert_data!(data, TypeDiscriminator::String) }
+    pub fn from_string (data: *mut object::String) -> Self { convert_data!(data, TypeDiscriminator::String) }
 
     /// Create a Value wrapping for data of `Function` type
-    pub fn from_function (data: *mut FunctionObj) -> Self { convert_data!(data, TypeDiscriminator::Function) }
+    pub fn from_function (data: *mut object::Function) -> Self { convert_data!(data, TypeDiscriminator::Function) }
 
     /// Create a Value wrapping for data of `Userdata` type
-    pub fn from_userdata (data: *mut UserdataObj) -> Self { convert_data!(data, TypeDiscriminator::Userdata) }
+    pub fn from_userdata (data: *mut object::Userdata) -> Self { convert_data!(data, TypeDiscriminator::Userdata) }
+
+    /// Create a Value wrapping for data of `Foreign` type
+    pub fn from_foreign (data: *mut object::Foreign) -> Self { convert_data!(data, TypeDiscriminator::Foreign) }
   }
 }
 
@@ -495,13 +328,15 @@ mod internal {
     character: char,
     boolean: bool,
     nil: (),
+    type_id: TypeID,
 
-    record: *mut RecordObj,
-    array: *mut ArrayObj,
-    map: *mut MapObj,
-    string: *mut StringObj,
-    function: *mut FunctionObj,
-    userdata: *mut UserdataObj,
+    record: *mut object::Record,
+    array: *mut object::Array,
+    map: *mut object::Map,
+    string: *mut object::String,
+    function: *mut object::Function,
+    userdata: *mut object::Userdata,
+    foreign: *mut object::Foreign,
   }
 
 
@@ -538,6 +373,9 @@ mod internal {
     /// Determine if a Value is of type `Nil`
     pub const fn is_nil (&self) -> bool { self.is_td(TypeDiscriminator::Nil) }
 
+    /// Determine if a Value is of type `TypeID`
+    pub const fn is_type_id (&self) -> bool { self.is_td(TypeDiscriminator::TypeID) }
+
     /// Determine if a Value is of type `Record`
     pub const fn is_record (&self) -> bool { self.is_td(TypeDiscriminator::Record) }
 
@@ -555,6 +393,9 @@ mod internal {
 
     /// Determine if a Value is of type `Userdata`
     pub const fn is_userdata (&self) -> bool { self.is_td(TypeDiscriminator::Userdata) }
+
+    /// Determine if a Value is of type `Foreign`
+    pub const fn is_foreign (&self) -> bool { self.is_td(TypeDiscriminator::Foreign) }
 
 
     /// Extract the internal `Real` in a Value
@@ -577,35 +418,45 @@ mod internal {
     /// Does not check that the Value actually contains the designated type
     pub unsafe fn as_boolean_unchecked (&self) -> bool { self.data.boolean }
     
+    /// Extract the internal `TypeID` in a Value
+    /// # Safety
+    /// Does not check that the Value actually contains the designated type
+    pub unsafe fn as_type_id_unchecked (&self) -> TypeID { self.data.type_id }
+    
     /// Extract the internal `Record` in a Value
     /// # Safety
     /// Does not check that the Value actually contains the designated type
-    pub unsafe fn as_record_unchecked (&self) -> *mut RecordObj { self.data.record }
+    pub unsafe fn as_record_unchecked (&self) -> *mut object::Record { self.data.record }
     
     /// Extract the internal `Array` in a Value
     /// # Safety
     /// Does not check that the Value actually contains the designated type
-    pub unsafe fn as_array_unchecked (&self) -> *mut ArrayObj { self.data.array }
+    pub unsafe fn as_array_unchecked (&self) -> *mut object::Array { self.data.array }
     
     /// Extract the internal `Map` in a Value
     /// # Safety
     /// Does not check that the Value actually contains the designated type
-    pub unsafe fn as_map_unchecked (&self) -> *mut MapObj { self.data.map }
+    pub unsafe fn as_map_unchecked (&self) -> *mut object::Map { self.data.map }
     
     /// Extract the internal `String` in a Value
     /// # Safety
     /// Does not check that the Value actually contains the designated type
-    pub unsafe fn as_string_unchecked (&self) -> *mut StringObj { self.data.string }
+    pub unsafe fn as_string_unchecked (&self) -> *mut object::String { self.data.string }
     
     /// Extract the internal `Function` in a Value
     /// # Safety
     /// Does not check that the Value actually contains the designated type
-    pub unsafe fn as_function_unchecked (&self) -> *mut FunctionObj { self.data.function }
+    pub unsafe fn as_function_unchecked (&self) -> *mut object::Function { self.data.function }
     
     /// Extract the internal `Userdata` in a Value
     /// # Safety
     /// Does not check that the Value actually contains the designated type
-    pub unsafe fn as_userdata_unchecked (&self) -> *mut UserdataObj { self.data.userdata }
+    pub unsafe fn as_userdata_unchecked (&self) -> *mut object::Userdata { self.data.userdata }
+
+    /// Extract the internal `Foreign` in a Value
+    /// # Safety
+    /// Does not check that the Value actually contains the designated type
+    pub unsafe fn as_foreign_unchecked (&self) -> *mut object::Foreign { self.data.foreign }
     
 
     /// Extract the internal `Real` in a Value
@@ -620,23 +471,29 @@ mod internal {
     /// Extract the internal `Boolean` in a Value
     pub fn as_boolean (&self) -> Option<bool> { if self.is_boolean() { Some(unsafe { self.as_boolean_unchecked() }) } else { None } }
 
+    /// Extract the internal `TypeID` in a Value
+    pub fn as_type_id (&self) -> Option<TypeID> { if self.is_type_id() { Some(unsafe { self.as_type_id_unchecked() }) } else { None } }
+
     /// Extract the internal `Record` in a Value
-    pub fn as_record (&self) -> Option<*mut RecordObj> { if self.is_record() { Some(unsafe { self.as_record_unchecked() }) } else { None } }
+    pub fn as_record (&self) -> Option<*mut object::Record> { if self.is_record() { Some(unsafe { self.as_record_unchecked() }) } else { None } }
 
     /// Extract the internal `Array` in a Value
-    pub fn as_array (&self) -> Option<*mut ArrayObj> { if self.is_array() { Some(unsafe { self.as_array_unchecked() }) } else { None } }
+    pub fn as_array (&self) -> Option<*mut object::Array> { if self.is_array() { Some(unsafe { self.as_array_unchecked() }) } else { None } }
 
     /// Extract the internal `Map` in a Value
-    pub fn as_map (&self) -> Option<*mut MapObj> { if self.is_map() { Some(unsafe { self.as_map_unchecked() }) } else { None } }
+    pub fn as_map (&self) -> Option<*mut object::Map> { if self.is_map() { Some(unsafe { self.as_map_unchecked() }) } else { None } }
 
     /// Extract the internal `String` in a Value
-    pub fn as_string (&self) -> Option<*mut StringObj> { if self.is_string() { Some(unsafe { self.as_string_unchecked() }) } else { None } }
+    pub fn as_string (&self) -> Option<*mut object::String> { if self.is_string() { Some(unsafe { self.as_string_unchecked() }) } else { None } }
 
     /// Extract the internal `Function` in a Value
-    pub fn as_function (&self) -> Option<*mut FunctionObj> { if self.is_function() { Some(unsafe { self.as_function_unchecked() }) } else { None } }
+    pub fn as_function (&self) -> Option<*mut object::Function> { if self.is_function() { Some(unsafe { self.as_function_unchecked() }) } else { None } }
 
     /// Extract the internal `Userdata` in a Value
-    pub fn as_userdata (&self) -> Option<*mut UserdataObj> { if self.is_userdata() { Some(unsafe { self.as_userdata_unchecked() }) } else { None } }
+    pub fn as_userdata (&self) -> Option<*mut object::Userdata> { if self.is_userdata() { Some(unsafe { self.as_userdata_unchecked() }) } else { None } }
+
+    /// Extract the internal `Foreign` in a Value
+    pub fn as_foreign (&self) -> Option<*mut object::Foreign> { if self.is_foreign() { Some(unsafe { self.as_foreign_unchecked() }) } else { None } }
 
 
     /// Create a Value wrapping for data of `Real` type
@@ -654,23 +511,29 @@ mod internal {
     /// Create a Value wrapping for data of `Nil` type
     pub fn from_nil () -> Self { Self { discriminant: TypeDiscriminator::Nil, data: ValueData { nil: () } } }
 
+    /// Create a Value wrapping for data of `TypeID` type
+    pub fn from_type_id (data: TypeID) -> Self { Self { discriminant: TypeDiscriminator::TypeID, data: ValueData { type_id: data } } }
+
     /// Create a Value wrapping for data of `Record` type
-    pub fn from_record (data: *mut RecordObj) -> Self { Self { discriminant: TypeDiscriminator::Record, data: ValueData { record: data } } }
+    pub fn from_record (data: *mut object::Record) -> Self { Self { discriminant: TypeDiscriminator::Record, data: ValueData { record: data } } }
 
     /// Create a Value wrapping for data of `Array` type
-    pub fn from_array (data: *mut ArrayObj) -> Self { Self { discriminant: TypeDiscriminator::Array, data: ValueData { array: data } } }
+    pub fn from_array (data: *mut object::Array) -> Self { Self { discriminant: TypeDiscriminator::Array, data: ValueData { array: data } } }
 
     /// Create a Value wrapping for data of `Map` type
-    pub fn from_map (data: *mut MapObj) -> Self { Self { discriminant: TypeDiscriminator::Map, data: ValueData { map: data } } }
+    pub fn from_map (data: *mut object::Map) -> Self { Self { discriminant: TypeDiscriminator::Map, data: ValueData { map: data } } }
 
     /// Create a Value wrapping for data of `String` type
-    pub fn from_string (data: *mut StringObj) -> Self { Self { discriminant: TypeDiscriminator::String, data: ValueData { string: data } } }
+    pub fn from_string (data: *mut object::String) -> Self { Self { discriminant: TypeDiscriminator::String, data: ValueData { string: data } } }
 
     /// Create a Value wrapping for data of `Function` type
-    pub fn from_function (data: *mut FunctionObj) -> Self { Self { discriminant: TypeDiscriminator::Function, data: ValueData { function: data } } }
+    pub fn from_function (data: *mut object::Function) -> Self { Self { discriminant: TypeDiscriminator::Function, data: ValueData { function: data } } }
 
     /// Create a Value wrapping for data of `Userdata` type
-    pub fn from_userdata (data: *mut UserdataObj) -> Self { Self { discriminant: TypeDiscriminator::Userdata, data: ValueData { userdata: data } } }
+    pub fn from_userdata (data: *mut object::Userdata) -> Self { Self { discriminant: TypeDiscriminator::Userdata, data: ValueData { userdata: data } } }
+
+    /// Create a Value wrapping for data of `Foreign` type
+    pub fn from_foreign (data: *mut object::Foreign) -> Self { Self { discriminant: TypeDiscriminator::Foreign, data: ValueData { foreign: data } } }
   }
 }
 
@@ -684,6 +547,7 @@ impl Debug for Value {
       TypeDiscriminator::Character => write!(f, "Character({:?})", unsafe { self.as_character_unchecked() }),
       TypeDiscriminator::Boolean => write!(f, "Boolean({})", unsafe { self.as_boolean_unchecked() }),
       TypeDiscriminator::Nil => write!(f, "Nil"),
+      TypeDiscriminator::TypeID => write!(f, "TypeID({:?})", unsafe { self.as_type_id_unchecked() }),
       TypeDiscriminator::String => write!(f, "String({:?})", unsafe { &*self.as_string_unchecked() }.data),
       _ => write!(f, "{}(@{:012x})", td, self.get_data_bits())
     }

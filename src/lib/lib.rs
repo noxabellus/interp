@@ -17,6 +17,7 @@
   associated_type_bounds,
   core_intrinsics,
   const_fn, const_panic, const_fn_union,
+  variant_count,
   stmt_expr_attributes,
   llvm_asm
 )]
@@ -27,4 +28,9 @@ mod static_assert;
 pub mod ptr;
 pub mod fnv1a;
 pub mod valloc;
+pub mod typeinfo;
 pub mod value;
+pub mod object;
+pub mod stack;
+pub mod instruction;
+pub mod vm;
