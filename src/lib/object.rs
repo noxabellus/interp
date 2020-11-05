@@ -155,11 +155,13 @@ pub struct Record {
 impl Record {
   /// Get a slice of the fields in a Record
   pub fn fields (&self) -> &[Value] {
+    // SAFETY: this is safe as long as the Record instance was constructed properly
     unsafe { std::slice::from_raw_parts(self.fields, self.num_fields) }
   }
 
   /// Get a mutable slice of the fields in a Record
   pub fn fields_mut (&mut self) -> &mut [Value] {
+    // SAFETY: this is safe as long as the Record instance was constructed properly
     unsafe { std::slice::from_raw_parts_mut(self.fields, self.num_fields) }
   }
 }
