@@ -32,10 +32,7 @@ pub struct Context {
 impl Context {
   /// Create a new Context
   pub fn new () -> Self {
-    Self {
-      types: TypeRegistry::default(),
-      globals: GlobalRegistry::default(),
-    }
+    Self { .. Default::default() }
   }
 }
 

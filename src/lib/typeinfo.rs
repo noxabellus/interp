@@ -196,14 +196,7 @@ impl TypeRegistry {
 
   /// Create a new TypeRegistry and initialize it with builtin types
   pub fn new () -> Self {
-    let mut out = Self {
-      info: Vec::default(),
-      records: HashMap::default(),
-      arrays: HashMap::default(),
-      maps: HashMap::default(),
-      functions: Vec::default(),
-      userdata: HashMap::default()
-    };
+    let mut out = Self { .. Default::default() };
 
     out.load_builtins();
 

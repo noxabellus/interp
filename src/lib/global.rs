@@ -25,10 +25,7 @@ pub struct GlobalRegistry {
 impl GlobalRegistry {
   /// Create a new GlobalRegistry
   pub fn new () -> Self {
-    Self {
-      globals: Vec::default(),
-      global_names: HashMap::default()
-    }
+    Self { .. Default::default() }
   }
 
   /// Create a new global variable or get an id for an existing one with the provided name
