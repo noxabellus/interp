@@ -34,4 +34,5 @@ pub mod value;
 pub mod object;
 pub mod stack;
 pub mod instruction;
+pub mod global;
 pub mod vm;

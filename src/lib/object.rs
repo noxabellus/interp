@@ -10,6 +10,7 @@ use std::{
 use crate::{
   value::Value,
   typeinfo::TypeID,
+  vm::Fiber,
 };
 
 /// Component of all Object type variants,
@@ -211,14 +212,27 @@ impl Hash for Record {
 }
 
 
-/// A free function or closure
+/// A free function
 #[repr(C)]
 pub struct Function {
   /// Contains the object's type id and linked list pointer
   pub header: Header,
-  // TODO
+  /// Contains the bytecode for a Function
+  pub code: Vec<u8>,
 }
 
+/// A closure function
+#[repr(C)]
+pub struct Closure {
+  /// Contains the object's type id and linked list pointer
+  pub header: Header,
+  
+  /// The function over which this Closure is formed
+  pub function: *mut Function,
+
+  // TODO ???
+  
+}
 
 /// Wrapper for native data
 #[repr(C)]
@@ -226,7 +240,7 @@ pub struct Userdata {
   /// Contains the object's type id and linked list pointer
   pub header: Header,
   /// Contains the actual value of the object
-  pub data: Box<dyn Any>
+  pub data: *mut dyn Any
 }
 
 /// Wrapper for native functions
@@ -235,5 +249,5 @@ pub struct Foreign {
   /// Contains the object's type id and linked list pointer
   pub header: Header,
   /// Contains the actual value of the object
-  pub data: extern "C" fn () -> ()
+  pub data: extern "C" fn (*mut Fiber) -> ()
 }

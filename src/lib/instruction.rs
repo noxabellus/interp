@@ -5,7 +5,7 @@ use crate::typeinfo::{ TypeID, TypeKind };
 /// An enum over every instruction type
 #[repr(C, u8)]
 #[allow(missing_docs)]
-pub enum Instruction {
+pub enum VirtualInstruction {
   // Variable access //
 
   LoadLocal(u8),
@@ -30,9 +30,7 @@ pub enum Instruction {
   GetMapElement,
   SetMapElement,
 
-  GetStringByte,
   GetStringCodepoint,
-  SetStringByte,
   SetStringCodepoint,
 
 
@@ -88,21 +86,24 @@ pub enum Instruction {
   PowInteger,
 
   AndInteger,
-  OrInteger,
-  XorInteger,
-
   AndBoolean,
+  
+  OrInteger,
   OrBoolean,
+
+  XorInteger,
 
   EqReal,
   EqInteger,
   EqCharacter,
   EqBoolean,
+  EqTypeID,
   
   NeReal,
   NeInteger,
   NeCharacter,
   NeBoolean,
+  NeTypeID,
 
   GtReal,
   GtInteger,
@@ -124,9 +125,10 @@ pub enum Instruction {
   // Control flow //
 
   Call,
+  CallDirect(u16),
 
-  Branch(usize),
-  ConditionalBranch(usize, usize),
+  Branch(i32),
+  ConditionalBranch(i32, i32),
 
   Return,
 
@@ -169,7 +171,4 @@ pub enum Instruction {
   ParameterCount,
 
   IsTypeKind(TypeKind),
-  
-  EqTypeID,
-  NeTypeID,
 }

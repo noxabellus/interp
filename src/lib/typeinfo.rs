@@ -34,23 +34,24 @@ pub enum TypeKind {
   Map,
   String,
   Function,
+  Closure,
   Userdata,
   Foreign,
 }
 
-impl From<PrimitiveType> for TypeKind {
-  fn from (prim: PrimitiveType) -> Self {
+impl From<PrimitiveKind> for TypeKind {
+  fn from (prim: PrimitiveKind) -> Self {
     static_assert!(
-         TypeKind::Nil as u8 == PrimitiveType::Nil as u8
-      && TypeKind::Real as u8 == PrimitiveType::Real as u8
-      && TypeKind::Integer as u8 == PrimitiveType::Integer as u8
-      && TypeKind::Character as u8 == PrimitiveType::Character as u8
-      && TypeKind::Boolean as u8 == PrimitiveType::Boolean as u8
-      && TypeKind::TypeID as u8 == PrimitiveType::TypeID as u8
+         TypeKind::Nil as u8 == PrimitiveKind::Nil as u8
+      && TypeKind::Real as u8 == PrimitiveKind::Real as u8
+      && TypeKind::Integer as u8 == PrimitiveKind::Integer as u8
+      && TypeKind::Character as u8 == PrimitiveKind::Character as u8
+      && TypeKind::Boolean as u8 == PrimitiveKind::Boolean as u8
+      && TypeKind::TypeID as u8 == PrimitiveKind::TypeID as u8
     );
 
-    // SAFETY: TypeKind and PrimitiveType have the same discriminators,
-    // for the subset of TypeKind in PrimitiveType; See static_assert above
+    // SAFETY: TypeKind and PrimitiveKind have the same discriminators,
+    // for the subset of TypeKind represented by PrimitiveKind; See static_assert above
     unsafe { transmute(prim) }
   }
 }
@@ -63,7 +64,9 @@ impl From<&TypeInfo> for TypeKind {
       TypeInfo::Array(_) => TypeKind::Array,
       TypeInfo::Map(_, _) => TypeKind::Map,
       TypeInfo::String => TypeKind::String,
-      TypeInfo::Function { is_foreign, .. } => if *is_foreign { TypeKind::Foreign } else { TypeKind::Function },
+      TypeInfo::Function { kind: FunctionKind::Free, .. } => TypeKind::Function,
+      TypeInfo::Function { kind: FunctionKind::Closure, .. } => TypeKind::Closure,
+      TypeInfo::Function { kind: FunctionKind::Foreign, .. } => TypeKind::Foreign,
       TypeInfo::Userdata(_) => TypeKind::Userdata,
     }
   }
@@ -83,6 +86,7 @@ impl From<TypeDiscriminator> for TypeKind {
       TypeDiscriminator::Map => TypeKind::Map,
       TypeDiscriminator::String => TypeKind::String,
       TypeDiscriminator::Function => TypeKind::Function,
+      TypeDiscriminator::Closure => TypeKind::Closure,
       TypeDiscriminator::Userdata => TypeKind::Userdata,
       TypeDiscriminator::Foreign => TypeKind::Foreign,
     }
@@ -93,7 +97,7 @@ impl From<TypeDiscriminator> for TypeKind {
 /// Signifies which variant of Primitive is represented by a value
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum PrimitiveType {
+pub enum PrimitiveKind {
   /// Represents the absence of data
   Nil,
   /// Floating point number
@@ -108,12 +112,24 @@ pub enum PrimitiveType {
   TypeID,
 }
 
+/// Singifies whether a function is a native function or if it is internal to the VM, whether it is a free function or a closure
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FunctionKind {
+  /// A free function or method, internal to the vm, with no internal state
+  Free,
+  /// A function internal to the vm, with its own bound internal state
+  Closure,
+  /// A native machine code function provided by the vm's host
+  Foreign,
+}
+
 /// Contains type-specific data for values
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TypeInfo {
   /// A primitive scalar value
-  Primitive(PrimitiveType),
+  Primitive(PrimitiveKind),
   /// A named type representing a collection of values of various types
   Record {
     /// The unique name of the Record
@@ -131,8 +147,8 @@ pub enum TypeInfo {
   String,
   /// A functional interface, free, method or closure
   Function {
-    /// Indicates whether a function is a native function or internal to the VM
-    is_foreign: bool,
+    /// Indicates whether a function is a native function or if it is internal to the VM, whether it is a free function or a closure
+    kind: FunctionKind,
     /// The type of value, if any, returned by a function
     return_type: Option<TypeID>,
     /// The type of each parameter passed to a function, if any
@@ -143,7 +159,7 @@ pub enum TypeInfo {
 }
 
 /// Stores TypeInfo and provides association to unique TypeIDs for each type
-pub struct TypeStore {
+pub struct TypeRegistry {
   type_id_counter: u16,
   info: Vec<TypeInfo>,
   records: HashMap<String, (u64, TypeID)>,
@@ -154,9 +170,10 @@ pub struct TypeStore {
 }
 
 
+// This has to be outside of impl TypeRegistry due to const eval problems
 const BUILTIN_TYPEINFO: &[TypeInfo] = {
   use TypeInfo::*;
-  use PrimitiveType::*;
+  use PrimitiveKind::*;
 
   &[
     Primitive(Nil),
@@ -169,11 +186,11 @@ const BUILTIN_TYPEINFO: &[TypeInfo] = {
   ]
 };
 
-impl TypeStore {
-  // Though the length is useful information, a properly-created TypeStore is never empty because of builtins
+impl TypeRegistry {
+  // Though the length is useful information, a properly-created TypeRegistry is never empty because of builtins
   #![allow(clippy::clippy::len_without_is_empty)]
 
-  /// Create a new TypeStore and initialize it with builtin types
+  /// Create a new TypeRegistry and initialize it with builtin types
   pub fn new () -> Self {
     let mut out = Self {
       type_id_counter: 0,
@@ -219,16 +236,16 @@ impl TypeStore {
     self.info.get(id.0 as usize)
   }
 
-  /// Get the number of unique types stored in a TypeStore
+  /// Get the number of unique types stored in a TypeRegistry
   pub fn len (&self) -> usize {
     self.info.len()
   }
 
-  /// Get the TypeID of a PrimitiveType
-  pub const fn primitive_id (prim: PrimitiveType) -> TypeID {
+  /// Get the TypeID of a PrimitiveKind
+  pub const fn primitive_id (prim: PrimitiveKind) -> TypeID {
     // Primitive types are added in the same order they are declared, so their ids are their discriminants
     {
-      macro_rules! check_prim { ($($var:ident),*) => { $( static_assert!(matches!(BUILTIN_TYPEINFO[PrimitiveType::$var as usize], TypeInfo::Primitive(PrimitiveType::$var))); )* } }
+      macro_rules! check_prim { ($($var:ident),*) => { $( static_assert!(matches!(BUILTIN_TYPEINFO[PrimitiveKind::$var as usize], TypeInfo::Primitive(PrimitiveKind::$var))); )* } }
 
       check_prim!(Nil, Real, Integer, Character, Boolean, TypeID);
     }
@@ -239,7 +256,7 @@ impl TypeStore {
   /// Get the TypeID of the String type
   pub const fn string_id () -> TypeID {
     // String is added directly after primitive types so its id is their variant count
-    const STRING_ID: usize = variant_count::<PrimitiveType>();
+    const STRING_ID: usize = variant_count::<PrimitiveKind>();
     static_assert!(matches!(BUILTIN_TYPEINFO[STRING_ID], TypeInfo::String));
 
     TypeID(STRING_ID as u16)
@@ -340,12 +357,12 @@ impl TypeStore {
   /// Get an id for an anonymous function type, returns an existing id if one exists or creates a new one if necessary
   /// # Panics
   /// + There are already u16::MAX TypeIDs registered and a new one needs to be created
-  pub fn create_function (&mut self, is_foreign: bool, return_type: Option<TypeID>, parameter_types: &[TypeID]) -> TypeID {
-    let (in_is_foreign, in_return_type, in_parameter_types) = (&is_foreign, &return_type, parameter_types);
+  pub fn create_function (&mut self, kind: FunctionKind, return_type: Option<TypeID>, parameter_types: &[TypeID]) -> TypeID {
+    let (in_kind, in_return_type, in_parameter_types) = (&kind, &return_type, parameter_types);
 
     let mut hasher = Fnv1a::default();
 
-    in_is_foreign.hash(&mut hasher);
+    in_kind.hash(&mut hasher);
     in_return_type.hash(&mut hasher);
     in_parameter_types.hash(&mut hasher);
 
@@ -359,8 +376,8 @@ impl TypeStore {
       // 2. only function ids are stored in the functions array, so existing_info will never be anything but a function
       unsafe { unchecked_destructure!(
         self.info.get_unchecked(existing_id.0 as usize),
-        TypeInfo::Function { is_foreign, return_type, parameter_types }
-        => if is_foreign == in_is_foreign
+        TypeInfo::Function { kind, return_type, parameter_types }
+        => if kind == in_kind
         && return_type == in_return_type
         && parameter_types.as_slice() == in_parameter_types {
           return existing_id
@@ -370,11 +387,11 @@ impl TypeStore {
       ) }
     }
 
-    let new_id = self.register_type(TypeInfo::Function { is_foreign, return_type, parameter_types: parameter_types.to_owned() });
+    let new_id = self.register_type(TypeInfo::Function { kind, return_type, parameter_types: parameter_types.to_owned() });
     self.functions.push((in_hash, new_id));
 
     new_id
   }
 }
 
-impl Default for TypeStore { fn default () -> Self { Self::new() } }
+impl Default for TypeRegistry { fn default () -> Self { Self::new() } }

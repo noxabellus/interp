@@ -31,14 +31,15 @@ pub enum TypeDiscriminator {
   Nil = tda!(4),
   TypeID = tda!(5),
 
-  Record = tdb!(1),
-  Array = tdb!(2),
-  Map = tdb!(3),
-  String = tdb!(4),
-  Function = tdb!(5),
+  Record = tda!(6),
+  Array = tda!(7),
+  Map = tdb!(1),
+  String = tdb!(2),
+  Function = tdb!(3),
+  Closure = tdb!(4),
 
-  Userdata = tdb!(6),
-  Foreign = tdb!(7),
+  Userdata = tdb!(5),
+  Foreign = tdb!(6),
 }
 
 impl Display for TypeDiscriminator {
@@ -55,6 +56,7 @@ impl Display for TypeDiscriminator {
       Self::Map => "Map",
       Self::String => "String",
       Self::Function => "Function",
+      Self::Closure => "Closure",
       Self::Userdata => "Userdata",
       Self::Foreign => "Foreign",
     })
@@ -159,6 +161,9 @@ mod internal {
     /// Determine if a Value is of type `Function`
     pub const fn is_function (&self) -> bool { self.is_td(TypeDiscriminator::Function) }
 
+    /// Determine if a Value is of type `Closure`
+    pub const fn is_closure (&self) -> bool { self.is_td(TypeDiscriminator::Closure) }
+
     /// Determine if a Value is of type `Userdata`
     pub const fn is_userdata (&self) -> bool { self.is_td(TypeDiscriminator::Userdata) }
 
@@ -216,6 +221,11 @@ mod internal {
     /// Does not check that the Value actually contains the designated type
     pub unsafe fn as_function_unchecked (&self) -> *mut object::Function { self.get_data_segment() as _ }
 
+    /// Extract the internal `Closure` in a Value
+    /// # Safety
+    /// Does not check that the Value actually contains the designated type
+    pub unsafe fn as_closure_unchecked (&self) -> *mut object::Closure { self.get_data_segment() as _ }
+
     /// Extract the internal `Userdata` in a Value
     /// # Safety
     /// Does not check that the Value actually contains the designated type
@@ -257,6 +267,9 @@ mod internal {
     /// Extract the internal `Function` in a Value
     pub fn as_function (&self) -> Option<*mut object::Function> { if self.is_function() { Some(unsafe { self.as_function_unchecked() }) } else { None } }
 
+    /// Extract the internal `Closure` in a Value
+    pub fn as_closure (&self) -> Option<*mut object::Closure> { if self.is_closure() { Some(unsafe { self.as_closure_unchecked() }) } else { None } }
+
     /// Extract the internal `Userdata` in a Value
     pub fn as_userdata (&self) -> Option<*mut object::Userdata> { if self.is_userdata() { Some(unsafe { self.as_userdata_unchecked() }) } else { None } }
 
@@ -297,6 +310,9 @@ mod internal {
     /// Create a Value wrapping for data of `Function` type
     pub fn from_function (data: *mut object::Function) -> Self { convert_data!(data, TypeDiscriminator::Function) }
 
+    /// Create a Value wrapping for data of `Closure` type
+    pub fn from_closure (data: *mut object::Closure) -> Self { convert_data!(data, TypeDiscriminator::Closure) }
+
     /// Create a Value wrapping for data of `Userdata` type
     pub fn from_userdata (data: *mut object::Userdata) -> Self { convert_data!(data, TypeDiscriminator::Userdata) }
 
@@ -335,6 +351,7 @@ mod internal {
     map: *mut object::Map,
     string: *mut object::String,
     function: *mut object::Function,
+    closure: *mut object::Closure,
     userdata: *mut object::Userdata,
     foreign: *mut object::Foreign,
   }
@@ -390,6 +407,9 @@ mod internal {
 
     /// Determine if a Value is of type `Function`
     pub const fn is_function (&self) -> bool { self.is_td(TypeDiscriminator::Function) }
+
+    /// Determine if a Value is of type `Closure`
+    pub const fn is_closure (&self) -> bool { self.is_td(TypeDiscriminator::Closure) }
 
     /// Determine if a Value is of type `Userdata`
     pub const fn is_userdata (&self) -> bool { self.is_td(TypeDiscriminator::Userdata) }
@@ -448,6 +468,11 @@ mod internal {
     /// Does not check that the Value actually contains the designated type
     pub unsafe fn as_function_unchecked (&self) -> *mut object::Function { self.data.function }
     
+    /// Extract the internal `Closure` in a Value
+    /// # Safety
+    /// Does not check that the Value actually contains the designated type
+    pub unsafe fn as_closure_unchecked (&self) -> *mut object::Closure { self.data.closure }
+    
     /// Extract the internal `Userdata` in a Value
     /// # Safety
     /// Does not check that the Value actually contains the designated type
@@ -489,6 +514,9 @@ mod internal {
     /// Extract the internal `Function` in a Value
     pub fn as_function (&self) -> Option<*mut object::Function> { if self.is_function() { Some(unsafe { self.as_function_unchecked() }) } else { None } }
 
+    /// Extract the internal `Closure` in a Value
+    pub fn as_closure (&self) -> Option<*mut object::Closure> { if self.is_closure() { Some(unsafe { self.as_closure_unchecked() }) } else { None } }
+
     /// Extract the internal `Userdata` in a Value
     pub fn as_userdata (&self) -> Option<*mut object::Userdata> { if self.is_userdata() { Some(unsafe { self.as_userdata_unchecked() }) } else { None } }
 
@@ -528,6 +556,9 @@ mod internal {
 
     /// Create a Value wrapping for data of `Function` type
     pub fn from_function (data: *mut object::Function) -> Self { Self { discriminant: TypeDiscriminator::Function, data: ValueData { function: data } } }
+
+    /// Create a Value wrapping for data of `Closure` type
+    pub fn from_closure (data: *mut object::Closure) -> Self { Self { discriminant: TypeDiscriminator::Closure, data: ValueData { closure: data } } }
 
     /// Create a Value wrapping for data of `Userdata` type
     pub fn from_userdata (data: *mut object::Userdata) -> Self { Self { discriminant: TypeDiscriminator::Userdata, data: ValueData { userdata: data } } }
