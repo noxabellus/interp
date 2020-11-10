@@ -12,8 +12,8 @@ use crate::{
 
 /// Data for a function call
 pub struct CallFrame {
-  /// The function being executed within this CallFrame
-  pub function: *mut object::Function,
+  /// The function or closure being executed within this CallFrame
+  pub body: *mut object::Object,
   /// The number of local variables utilized by this CallFrame
   pub local_count: usize,
   /// The instruction pointer for this CallFrame

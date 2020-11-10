@@ -16,6 +16,11 @@ use crate::value::TypeDiscriminator;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TypeID(pub(crate) u16);
 
+impl TypeID {
+  /// The maximum number of types a script can reference
+  pub const MAX_TYPES: usize = u16::MAX as _;
+}
+
 
 /// Defines the higher-level type of a type
 #[repr(u8)]
@@ -160,7 +165,6 @@ pub enum TypeInfo {
 
 /// Stores TypeInfo and provides association to unique TypeIDs for each type
 pub struct TypeRegistry {
-  type_id_counter: u16,
   info: Vec<TypeInfo>,
   records: HashMap<String, (u64, TypeID)>,
   arrays: HashMap<TypeID, TypeID>,
@@ -193,7 +197,6 @@ impl TypeRegistry {
   /// Create a new TypeRegistry and initialize it with builtin types
   pub fn new () -> Self {
     let mut out = Self {
-      type_id_counter: 0,
       info: Vec::default(),
       records: HashMap::default(),
       arrays: HashMap::default(),
@@ -214,14 +217,12 @@ impl TypeRegistry {
   }
 
   fn register_type (&mut self, info: TypeInfo) -> TypeID {
-    assert!(self.type_id_counter < u16::MAX);
-
-    let id = self.type_id_counter;
-    self.type_id_counter += 1;
+    let idx = self.info.len();
+    assert!(idx < TypeID::MAX_TYPES, "Cannot create more than {} types", TypeID::MAX_TYPES);
 
     self.info.push(info);
 
-    TypeID(id)
+    TypeID(idx as _)
   }
 
   /// Get TypeInfo from a TypeID
@@ -266,7 +267,7 @@ impl TypeRegistry {
   /// 
   /// Returns None if a Userdata type with the given name already exists
   /// # Panics
-  /// + There are already u16::MAX TypeIDs registered
+  /// + There are already `TypeID::MAX_TYPES` TypeIDs registered
   pub fn create_userdata (&mut self, name: String) -> Option<TypeID> {
     if likely(!self.userdata.contains_key(&name)) {
       let new_id = self.register_type(TypeInfo::Userdata(name.clone()));
@@ -286,7 +287,7 @@ impl TypeRegistry {
   /// Create a new Record type
   /// + Returns None if a Record type with the given name already exists but has a different implementation
   /// # Panics
-  /// + There are already u16::MAX TypeIDs registered
+  /// + There are already `TypeID::MAX_TYPES` TypeIDs registered
   pub fn create_record (&mut self, name: &str, field_types: &[TypeID], field_names: &[String]) -> Option<TypeID> {
     let (in_field_types, in_field_names) = (field_types, field_names);
 
@@ -328,7 +329,7 @@ impl TypeRegistry {
 
   /// Get an id for an anonymous array type, returns an existing id if one exists or creates a new one if necessary
   /// # Panics
-  /// + There are already u16::MAX TypeIDs registered and a new one needs to be created
+  /// + There are already `TypeID::MAX_TYPES` TypeIDs registered and a new one needs to be created
   pub fn create_array (&mut self, elem_type: TypeID) -> TypeID {
     if let Some(&existing_id) = self.arrays.get(&elem_type) {
       existing_id
@@ -342,7 +343,7 @@ impl TypeRegistry {
 
   /// Get an id for an anonymous map type, returns an existing id if one exists or creates a new one if necessary
   /// # Panics
-  /// + There are already u16::MAX TypeIDs registered and a new one needs to be created
+  /// + There are already `TypeID::MAX_TYPES` TypeIDs registered and a new one needs to be created
   pub fn create_map (&mut self, key_type: TypeID, value_type: TypeID) -> TypeID {
     if let Some(&existing_id) = self.maps.get(&(key_type, value_type)) {
       existing_id
@@ -356,7 +357,7 @@ impl TypeRegistry {
 
   /// Get an id for an anonymous function type, returns an existing id if one exists or creates a new one if necessary
   /// # Panics
-  /// + There are already u16::MAX TypeIDs registered and a new one needs to be created
+  /// + There are already `TypeID::MAX_TYPES` TypeIDs registered and a new one needs to be created
   pub fn create_function (&mut self, kind: FunctionKind, return_type: Option<TypeID>, parameter_types: &[TypeID]) -> TypeID {
     let (in_kind, in_return_type, in_parameter_types) = (&kind, &return_type, parameter_types);
 

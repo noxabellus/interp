@@ -10,6 +10,11 @@ use crate::value::Value;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct GlobalID(u16);
 
+impl GlobalID {
+  /// The maximum number of global variables a script can create
+  pub const MAX_GLOBALS: usize = u16::MAX as _;
+}
+
 
 /// Stores global variables
 pub struct GlobalRegistry {
@@ -28,15 +33,15 @@ impl GlobalRegistry {
 
   /// Create a new global variable or get an id for an existing one with the provided name
   /// # Panics
-  /// + There are already `u16::MAX` globals in the GlobalRegistry but a new global needs to be created
+  /// + There are already `GlobalID::MAX_GLOBALS` globals in the GlobalRegistry but a new global needs to be created
   pub fn create_global (&mut self, name: &str) -> (GlobalID, &mut Value) {
     let id = if let Some(&existing_id) = self.global_names.get(name) {
       existing_id
     } else {
       let idx = self.globals.len();
-      assert!(idx <= u16::MAX as _, "Cannot create more than {} globals", u16::MAX);
+      assert!(idx <= GlobalID::MAX_GLOBALS, "Cannot create more than {} globals", GlobalID::MAX_GLOBALS);
 
-      let id = GlobalID(idx as u16);
+      let id = GlobalID(idx as _);
 
       self.globals.push(Value::from_nil());
       self.global_names.insert(name.to_owned(), id);

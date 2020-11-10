@@ -2,7 +2,8 @@
 
 #![allow(
   incomplete_features,
-  clippy::inconsistent_digit_grouping
+  clippy::inconsistent_digit_grouping,
+  clippy::unusual_byte_groupings
 )]
 
 #![warn(missing_docs)]
@@ -16,7 +17,7 @@
   associated_type_defaults,
   associated_type_bounds,
   core_intrinsics,
-  const_fn, const_panic, const_fn_union, const_discriminant,
+  const_fn, const_panic, const_fn_union, const_discriminant, const_fn_transmute,
   variant_count,
   stmt_expr_attributes,
   llvm_asm
