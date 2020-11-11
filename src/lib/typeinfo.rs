@@ -137,8 +137,6 @@ pub enum TypeInfo {
   Primitive(PrimitiveKind),
   /// A named type representing a collection of values of various types
   Record {
-    /// The unique name of the Record
-    name: String,
     /// The types associated with each field
     field_types: Vec<TypeID>,
     /// The names associated with each field
@@ -166,7 +164,7 @@ pub enum TypeInfo {
 /// Stores TypeInfo and provides association to unique TypeIDs for each type
 pub struct TypeRegistry {
   info: Vec<TypeInfo>,
-  records: HashMap<String, (u64, TypeID)>,
+  records: Vec<(u64, TypeID)>,
   arrays: HashMap<TypeID, TypeID>,
   maps: HashMap<(TypeID, TypeID), TypeID>,
   functions: Vec<(u64, TypeID)>,
@@ -278,10 +276,9 @@ impl TypeRegistry {
   }
 
   /// Create a new Record type
-  /// + Returns None if a Record type with the given name already exists but has a different implementation
   /// # Panics
   /// + There are already `TypeID::MAX_TYPES` TypeIDs registered
-  pub fn create_record (&mut self, name: &str, field_types: &[TypeID], field_names: &[String]) -> Option<TypeID> {
+  pub fn create_record (&mut self, field_types: &[TypeID], field_names: &[String]) -> TypeID {
     let (in_field_types, in_field_names) = (field_types, field_names);
 
     let mut hasher = Fnv1a::default();
@@ -291,33 +288,26 @@ impl TypeRegistry {
 
     let in_hash = hasher.finish();
 
-    Some(if let Some(&(existing_hash, existing_id)) = self.records.get(name) {
-      if existing_hash != in_hash { return None }
+    for &(existing_hash, existing_id) in self.records.iter() {
+      if existing_hash == in_hash {
+        // SAFETY:
+        // 1. types are never deleted, so any id inserted into self.records will be a valid index in self.info
+        // 2. only record ids are stored in the records array, so existing_info will never be anything but a record
+        unsafe { unchecked_destructure!(
+          self.info.get_unchecked(existing_id.0 as usize), 
+          TypeInfo::Record { field_types, field_names, .. }
+          => if field_types.as_slice() == in_field_types
+          && field_names.as_slice() == in_field_names {
+            return existing_id
+          }
+        ) }
+      }
+    }
+    
+    let new_id = self.register_type(TypeInfo::Record { field_types: field_types.to_owned(), field_names: field_names.to_owned() });
+    self.records.push((in_hash, new_id));
 
-      // SAFETY:
-      // 1. types are never deleted, so any id inserted into self.records will be a valid index in self.info
-      // 2. only record ids are stored in the records array, so existing_info will never be anything but a record
-      unsafe { unchecked_destructure!(
-        self.info.get_unchecked(existing_id.0 as usize), 
-        TypeInfo::Record { field_types, field_names, .. }
-        => if field_types.as_slice() == in_field_types
-        && field_names.as_slice() == in_field_names {
-          existing_id
-        } else {
-          return None
-        }
-      ) }
-    } else {
-      let new_id = self.register_type(TypeInfo::Record { name: name.to_owned(), field_types: field_types.to_owned(), field_names: field_names.to_owned() });
-      self.records.insert(name.to_owned(), (in_hash, new_id));
-
-      new_id
-    })
-  }
-  
-  /// Find a Record type by name, if one exists
-  pub fn find_record (&self, name: &str) -> Option<TypeID> {
-    self.records.get(name).map(|(_hash, id)| *id)
+    new_id
   }
 
   /// Get an id for an anonymous array type, returns an existing id if one exists or creates a new one if necessary
