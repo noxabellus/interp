@@ -7,61 +7,9 @@ use std::{
   iter::Peekable,
 };
 use macros::{ option_matcher, expand_or_else, c_enum };
-use super::{ common::*, lexer::* };
+use super::{ common::*, lexer::*, token::*, ast::* };
 
-/// Either a real (`f64`) or an integer (`i32`)
-#[allow(missing_docs)]
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
-pub enum Number {
-  Real(f64),
-  Integer(i32),
-}
 
-impl fmt::Display for Number {
-  fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    match self {
-      Number::Real(real) => writeln!(f, "{}", real),
-      Number::Integer(int) => writeln!(f, "{}", int)
-    }
-  }
-}
-
-impl Default for Number {
-  fn default () -> Self { Self::Integer(0) }
-}
-
-impl str::FromStr for Number {
-  type Err = ();
-
-  fn from_str (s: &str) -> Result<Self, Self::Err> {
-    if s.contains('.') { Ok(Number::Real(s.parse().map_err(|_| ())?)) }
-    else { Ok(Number::Integer(s.parse().map_err(|_| ())?)) }
-  }
-}
-
-/// Variant-specific for an ast node
-#[derive(Debug)]
-#[allow(missing_docs)]
-pub enum ExprData<'src> {
-  Nil,
-  Number(Number),
-  Boolean(bool),
-  Identifier(&'src str),
-  Array(Vec<Expr<'src>>),
-  Unary(Operator, Box<Expr<'src>>),
-  Binary(Operator, Box<Expr<'src>>, Box<Expr<'src>>),
-  Call(Box<Expr<'src>>, Vec<Expr<'src>>),
-  Member(Box<Expr<'src>>, &'src str),
-  Subscript(Box<Expr<'src>>, Box<Expr<'src>>)
-}
-
-/// A grammar node
-#[derive(Debug)]
-#[allow(missing_docs)]
-pub struct Expr<'src> {
-  pub data: ExprData<'src>,
-  pub loc: Loc
-}
 
 
 /// Wraps a TokenIter to allow syntax analysis
@@ -130,7 +78,7 @@ impl<'f> fmt::Display for ParseErrDisplay<'f> {
 
 /// Allows quick conversion of a Lexical value into parsed ast nodes
 pub trait Syntactic<'src> {
-  /// Wrap a Lexical item in a Parser
+  /// Wrap an item yielding Tokens in a Parser to yield ast nodes
   fn syn (self) -> Parser<'src>;
 }
 
