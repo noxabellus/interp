@@ -62,7 +62,7 @@ macro_rules! static_assert {
 macro_rules! c_enum {
   ( $(
     $(#[$meta:meta])*
-    $vis:vis enum $name:ident : $repr:ty {
+    $vis:vis $name:ident : $repr:ty {
       $($vars:ident = $vals:expr),* $(,)?
     }
   )* ) => { $(
@@ -74,6 +74,5 @@ macro_rules! c_enum {
       pub type Repr = $repr;
       $(pub const $vars: $repr = $vals;)*
     }
-
   )* };
 }

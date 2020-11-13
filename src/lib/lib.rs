@@ -33,8 +33,9 @@ extern crate self as interp;
 
 extern crate interp_macros as macros;
 
-pub mod utils;
-pub mod valloc;
+mod utils;
+mod valloc;
+
 pub mod typeinfo;
 pub mod value;
 pub mod object;
@@ -42,4 +43,5 @@ pub mod stack;
 pub mod instruction;
 pub mod global;
 pub mod vm;
+
 pub mod frontend;

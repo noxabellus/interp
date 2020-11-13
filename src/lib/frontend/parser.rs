@@ -3,11 +3,18 @@
 #![allow(dead_code)]
 
 use std::{
-  str, fmt, ops,
+  str, fmt,
   iter::Peekable,
 };
+
 use macros::{ option_matcher, expand_or_else, c_enum };
-use super::{ common::*, lexer::*, token::*, ast::* };
+
+use super::{
+  common::{ Operator, Loc },
+  lexer::{ TokenIter, Lexical },
+  token::{ Token, TokenData },
+  ast::{ Number, Expr, ExprData },
+};
 
 
 
@@ -32,31 +39,14 @@ impl<'src> Parser<'src> {
   pub fn expr (&mut self) -> ParseResult<Expr<'src>> {
     self::expr(self)
   }
-}
 
-
-
-fn consume<'src, 'res, T: 'res> (it: &mut Parser<'src>, f: impl FnOnce (TokenData<'res>) -> Option<T>) -> ParseResult<(T, Loc)>
-where 'src: 'res
-{
-  if let Some(&Token { data, loc }) = it.base.peek() {
-    if let Some(value) = f(data) {
-      it.base.next();
-      return Value((value, loc))
-    }
+  fn problem_msg (&mut self, msg_if_not_at_end: &'static str) -> &'static str {
+    if self.base.peek().is_some() { msg_if_not_at_end }
+    else { "Unexpected end of input" }
   }
 
-  Nothing
-}
-
-fn consume_parsed<'int, 'src: 'int, T: str::FromStr> (it: &mut Parser<'src>, on_fail: &'static str, f: impl FnOnce (TokenData<'int>) -> Option<&'int str>) -> ParseResult<(T, Loc)> {
-  match consume(it, f) {
-    Value((int, loc)) => match int.parse() {
-      Ok(out) => Value((out, loc)),
-      Err(_) => Problem(on_fail)
-    },
-    Problem(e) => Problem(e),
-    Nothing => Nothing
+  fn unexpected (&mut self) -> &'static str {
+    self.problem_msg("Unexpected symbol")
   }
 }
 
@@ -99,67 +89,6 @@ pub enum ParseResult<T> {
 
 pub use ParseResult::*;
 
-impl<T> ops::Try for ParseResult<T> {
-  type Ok = Option<T>;
-  type Error = &'static str;
-
-  fn into_result (self) -> Result<Self::Ok, Self::Error> {
-    match self {
-      Value(v) => Ok(Some(v)),
-      Problem(e) => Err(e),
-      Nothing => Ok(None)
-    }
-  }
-
-  fn from_ok (v: Self::Ok) -> Self {
-    match v {
-      Some(v) => Value(v),
-      None => Nothing
-    }
-  }
-
-  fn from_error (e: Self::Error) -> Self {
-    Problem(e)
-  }
-}
-
-impl<T> From<Option<T>> for ParseResult<T> {
-  fn from (opt: Option<T>) -> Self {
-    match opt {
-      Some(v) => Value(v),
-      None => Nothing
-    }
-  }
-}
-
-impl<T> From<Result<T, &'static str>> for ParseResult<T> {
-  fn from (opt: Result<T, &'static str>) -> Self {
-    match opt {
-      Ok(v) => Value(v),
-      Err(e) => Problem(e)
-    }
-  }
-}
-
-impl<T> From<Result<Option<T>, &'static str>> for ParseResult<T> {
-  fn from (res: Result<Option<T>, &'static str>) -> Self {
-    match res {
-      Ok(Some(v)) => Value(v),
-      Err(e) => Problem(e),
-      Ok(None) => Nothing,
-    }
-  }
-}
-
-impl<T> From<Option<Result<T, &'static str>>> for ParseResult<T> {
-  fn from (res: Option<Result<T, &'static str>>) -> Self {
-    match res {
-      Some(Ok(v)) => Value(v),
-      Some(Err(e)) => Problem(e),
-      None => Nothing,
-    }
-  }
-}
 
 impl<T> ParseResult<T> {
   /// Result/Option map equivalent
@@ -191,14 +120,54 @@ impl<T> ParseResult<T> {
 }
 
 
+macro_rules! soft_unwrap {
+  ($expr:expr) => {
+    match $expr {
+      Value(v) => v,
+      Problem(e) => return Problem(e),
+      Nothing => return Nothing
+    }
+  };
+}
+
+macro_rules! unwrap {
+  ($expr:expr $(, $problem:expr)?) => {
+    match $expr {
+      Value(v) => v,
+      Problem(e) => return Problem(e),
+      Nothing => return Problem(expand_or_else!($($problem)?, "Expected a value"))
+    }
+  };
+}
+
+
+fn consume<'src, 'res, T: 'res> (it: &mut Parser<'src>, f: impl FnOnce (TokenData<'res>) -> Option<T>) -> ParseResult<(T, Loc)>
+where 'src: 'res
+{
+  if let Some(&Token { data, loc }) = it.base.peek() {
+    if let Some(value) = f(data) {
+      it.base.next();
+      return Value((value, loc))
+    }
+  }
+
+  Nothing
+}
+
+fn consume_parsed<'int, 'src: 'int, T: str::FromStr> (it: &mut Parser<'src>, on_fail: &'static str, f: impl FnOnce (TokenData<'int>) -> Option<&'int str>) -> ParseResult<(T, Loc)> {
+  match consume(it, f) {
+    Value((int, loc)) => match int.parse() {
+      Ok(out) => Value((out, loc)),
+      Err(_) => Problem(on_fail)
+    },
+    Problem(e) => Problem(e),
+    Nothing => Nothing
+  }
+}
 
 
 const fn mk_expr<'src, T> (x: impl FnOnce (T) -> ExprData<'src>) -> impl FnOnce ((T, Loc)) -> Expr<'src> {
   move |(v, loc)| Expr { data: x(v), loc }
-}
-
-macro_rules! any_of {
-  ($it:expr, $first:expr, $($rest:expr),*) => { $first($it) $(.or_else(|| $rest($it)))* }
 }
 
 
@@ -224,30 +193,6 @@ fn nil_raw (it: &mut Parser) -> ParseResult<((), Loc)> {
   consume(it, option_matcher!(TokenData::Identifier("nil") => ()))
 }
 
-fn identifier<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
-  identifier_raw(it)
-    .map(mk_expr(ExprData::Identifier))
-}
-
-fn number<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
-  number_raw(it)
-    .map(mk_expr(ExprData::Number))
-}
-
-fn boolean<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
-  boolean_raw(it)
-    .map(mk_expr(ExprData::Boolean))
-}
-
-fn nil<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
-  nil_raw(it)
-    .map(mk_expr(|_| ExprData::Nil))
-}
-
-fn atom<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
-  any_of!(it, identifier, number, boolean, nil)
-}
-
 fn any_operator (it: &mut Parser) -> ParseResult<(Operator, Loc)> {
   consume(it, option_matcher!(TokenData::Operator(op) => op))
 }
@@ -265,26 +210,54 @@ fn keyword<'src> (it: &mut Parser<'src>, kw: &str) -> ParseResult<(&'src str, Lo
 }
 
 
+macro_rules! any_of {
+  ($it:expr, $first:expr, $($rest:expr),*) => { $first($it) $(.or_else(|| $rest($it)))* }
+}
+
+
+fn list_body<'src, T, U> (
+  it: &mut Parser<'src>,
+  mut element: impl FnMut (&mut Parser<'src>) -> ParseResult<T>,
+  mut separator: impl FnMut (&mut Parser<'src>) -> ParseResult<U>
+) -> ParseResult<Vec<T>> {
+  let mut items = vec![];
+
+  loop {
+    match element(it) {
+      Value(v) => items.push(v),
+      Problem(e) => return Problem(e),
+      Nothing => break
+    }
+
+    match separator(it) {
+      Value(_) => continue,
+      Problem(e) => return Problem(e),
+      Nothing => break
+    }
+  }
+
+  Value(items)
+}
 
 
 c_enum! {
-  enum Precedence: u8 {
+  Precedence: u8 {
     FullExpr = 0,
-    Access = 10,
-    Exponent = 20,
-    Unary = 30,
-    Mul = 40,
-    Add = 50,
-    Bitshift = 60,
-    BAnd = 70,
-    BXor = 80,
-    BOr = 90,
-    Comp = 100,
-    LAnd = 110,
-    LOr = 120,
+    Access = 120,
+    Exponent = 110,
+    Unary = 100,
+    Mul = 90,
+    Add = 80,
+    Bitshift = 70,
+    BAnd = 60,
+    BXor = 50,
+    BOr = 40,
+    Comp = 30,
+    LAnd = 20,
+    LOr = 10,
   }
 
-  enum Associativity: u8 {
+  Associativity: u8 {
     Left = 0,
     Right = 1,
   }
@@ -294,71 +267,6 @@ const PREFIX: &[Operator] = { use Operator::*; &[
   Add, Sub,
   LNot, BNot
 ] };
-
-macro_rules! soft_unwrap {
-  ($expr:expr) => {
-    match $expr {
-      Value(v) => v,
-      Problem(e) => return Problem(e),
-      Nothing => return Nothing
-    }
-  };
-}
-
-macro_rules! unwrap {
-  ($expr:expr $(, $problem:expr)?) => {
-    match $expr {
-      Value(v) => v,
-      Problem(e) => return Problem(e),
-      Nothing => return Problem(expand_or_else!($($problem)?, "Expected a value"))
-    }
-  };
-}
-
-impl<'src> Parser<'src> {
-  fn problem_msg (&mut self, msg_if_not_at_end: &'static str) -> &'static str {
-    if self.base.peek().is_some() { msg_if_not_at_end }
-    else { "Unexpected end of input" }
-  }
-
-  fn unexpected (&mut self) -> &'static str {
-    self.problem_msg("Unexpected symbol")
-  }
-}
-
-fn unary<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
-  let (operator, loc) = soft_unwrap!(any_operator_of(it, PREFIX));
-
-  let operand = unwrap!(pratt(it, Precedence::Unary), it.unexpected());
-
-  Value(Expr { data: ExprData::Unary(operator, box operand), loc })
-}
-
-
-fn array<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
-  let (_, loc) = soft_unwrap!(operator(it, Operator::LBrace));
-  let elements = unwrap!(list_body(it, expr, |it| operator(it, Operator::Comma)));
-
-  unwrap!(operator(it, Operator::RBrace), "Expected ] to close array literal or , to separate array elements");
-
-  Value(Expr { data: ExprData::Array(elements), loc })
-}
-
-fn sem_group<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
-  let (_, loc) = soft_unwrap!(operator(it, Operator::LParen));
-  let mut inner = unwrap!(expr(it), "Expected an expression inside semantic grouping ()");
-  inner.loc = loc;
-
-  unwrap!(operator(it, Operator::RParen), "Expected ) to close semantic grouping expression");
-
-  Value(inner)
-}
-
-fn prefix<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
-  any_of!(it, atom, sem_group, array, unary)
-}
-
-
 
 
 type InfixFn = for<'src> fn (it: &mut Parser<'src>, left: Expr<'src>, info: (Precedence::Repr, Operator)) -> ParseResult<Expr<'src>>;
@@ -403,12 +311,11 @@ const INFIX_TABLE: &[InfixEntry] = {
   ]
 };
 
-
 fn operator_in_table (it: &mut Parser, prec: Precedence::Repr, table: &[InfixEntry]) -> Option<InfixEntry> {
   if let Some(&Token { data: TokenData::Operator(op), .. }) = it.base.peek() {
     for &entry @ (table_op, op_prec, _) in table {
       if op == table_op
-      && op_prec >= prec {
+      && op_prec > prec {
         it.base.next();
 
         return Some(entry)
@@ -419,25 +326,64 @@ fn operator_in_table (it: &mut Parser, prec: Precedence::Repr, table: &[InfixEnt
   None
 }
 
-fn list_body<'src, T, U> (it: &mut Parser<'src>, mut element: impl FnMut (&mut Parser<'src>) -> ParseResult<T>, mut separator: impl FnMut (&mut Parser<'src>) -> ParseResult<U>) -> ParseResult<Vec<T>> {
-  let mut items = vec![];
 
-  loop {
-    match element(it) {
-      Value(v) => items.push(v),
-      Problem(e) => return Problem(e),
-      Nothing => break
-    }
 
-    match separator(it) {
-      Value(_) => continue,
-      Problem(e) => return Problem(e),
-      Nothing => break
-    }
-  }
-
-  Value(items)
+fn identifier<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
+  identifier_raw(it)
+    .map(mk_expr(ExprData::Identifier))
 }
+
+fn number<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
+  number_raw(it)
+    .map(mk_expr(ExprData::Number))
+}
+
+fn boolean<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
+  boolean_raw(it)
+    .map(mk_expr(ExprData::Boolean))
+}
+
+fn nil<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
+  nil_raw(it)
+    .map(mk_expr(|_| ExprData::Nil))
+}
+
+fn atom<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
+  any_of!(it, identifier, number, boolean, nil)
+}
+
+fn array<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
+  let (_, loc) = soft_unwrap!(operator(it, Operator::LBrace));
+  let elements = unwrap!(list_body(it, expr, |it| operator(it, Operator::Comma)));
+
+  unwrap!(operator(it, Operator::RBrace), "Expected ] to close array literal or , to separate array elements");
+
+  Value(Expr { data: ExprData::Array(elements), loc })
+}
+
+fn sem_group<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
+  let (_, loc) = soft_unwrap!(operator(it, Operator::LParen));
+  let mut inner = unwrap!(expr(it), "Expected an expression inside semantic grouping ()");
+  inner.loc = loc;
+
+  unwrap!(operator(it, Operator::RParen), "Expected ) to close semantic grouping expression");
+
+  Value(inner)
+}
+
+fn unary<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
+  let (operator, loc) = soft_unwrap!(any_operator_of(it, PREFIX));
+
+  let operand = unwrap!(pratt(it, Precedence::Unary), it.unexpected());
+
+  Value(Expr { data: ExprData::Unary(operator, box operand), loc })
+}
+
+fn prefix<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
+  any_of!(it, atom, sem_group, array, unary)
+}
+
+
 
 fn binary<'src> (it: &mut Parser<'src>, left: Expr<'src>, (prec, op): (Precedence::Repr, Operator)) -> ParseResult<Expr<'src>> {
   let loc = left.loc;
@@ -473,8 +419,6 @@ fn member<'src> (it: &mut Parser<'src>, left: Expr<'src>, _: (Precedence::Repr, 
 
   Value(Expr { data: ExprData::Member(box left, field), loc })
 }
-
-
 
 fn pratt<'src> (it: &mut Parser<'src>, prec: Precedence::Repr) -> ParseResult<Expr<'src>> {
   let mut left = soft_unwrap!(prefix(it));

@@ -1,5 +1,6 @@
 //! Contains a virtual memory allocator abstraction over platform implementations
 
+#![allow(dead_code)]
 
 pub use std::alloc::handle_alloc_error;
 

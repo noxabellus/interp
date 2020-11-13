@@ -4,10 +4,10 @@ use std::str;
 
 use macros::{ matcher, expand_or_else };
 
-use super::{ common::*, token::* };
-
-
-
+use super::{
+  common::{ Loc, Operator },
+  token::{ UnrecognizedByte, Token, TokenData },
+};
 
 
 /// Iterator providing lexical analysis of a source

@@ -13,7 +13,7 @@ fn main () {
   let mut parser = test_file.syn();
 
   match parser.expr() {
-    Value(v) => println!("Parsed expr: {:#?}", v),
+    Value(v) => println!("{:#?}", v),
     Problem(e) => println!("{}", parser.display_error(TEST_FILE, e)),
     Nothing => println!("Parsed nothing")
   }

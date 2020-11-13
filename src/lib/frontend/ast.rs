@@ -2,6 +2,7 @@
 
 use std::{ fmt, str };
 
+use crate::utils::DisplayInDebug;
 use super::common::{ Operator, Loc };
 
 
@@ -36,7 +37,6 @@ impl str::FromStr for Number {
 }
 
 /// Variant-specific for an ast node
-#[derive(Debug)]
 #[allow(missing_docs)]
 pub enum ExprData<'src> {
   Nil,
@@ -51,6 +51,25 @@ pub enum ExprData<'src> {
   Subscript(Box<Expr<'src>>, Box<Expr<'src>>)
 }
 
+impl<'src> fmt::Debug for ExprData<'src> {
+  fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    use ExprData::*;
+    match self {
+      Nil => write!(f, "nil"),
+      Number(number) => write!(f, "{}", number),
+      Boolean(boolean) => write!(f, "{}", boolean),
+      Identifier(identifier) => write!(f, "{}", identifier),
+      Array(array) => f.debug_list().entries(array).finish(),
+      Unary(operator, operand) => f.debug_tuple("Unary").field(operator).field(operand).finish(),
+      Binary(operator, left, right) => f.debug_tuple("Binary").field(operator).field(left).field(right).finish(),
+      Call(callee, arguments) => f.debug_tuple("Call").field(callee).field(arguments).finish(),
+      Member(target, field) => f.debug_tuple("Member").field(target).field(&DisplayInDebug(field)).finish(),
+      Subscript(target, accessor) => f.debug_tuple("Subscript").field(target).field(accessor).finish(),
+    }
+  }
+}
+
+
 /// A grammar node
 #[allow(missing_docs)]
 pub struct Expr<'src> {
@@ -61,11 +80,14 @@ pub struct Expr<'src> {
 impl<'src> fmt::Debug for Expr<'src> {
   fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     if f.alternate() {
-      write!(f, "{:#?}", self.data)
-    } else{
-      write!(f, "{:?}", self.data)
-    }?;
+      if f.sign_minus() { write!(f, "{:-#?}", self.data) }
+      else { write!(f, "{:#?}", self.data) }
+    } else if f.sign_minus() { write!(f, "{:-?}", self.data) }
+    else { write!(f, "{:?}", self.data) }
+    ?;
 
-    write!(f, " {:?}", self.loc)
+    if f.sign_minus() { write!(f, " {:?}", self.loc)?; }
+
+    Ok(())
   }
 }
