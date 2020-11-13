@@ -17,8 +17,8 @@ pub enum Number {
 impl fmt::Display for Number {
   fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
-      Number::Real(real) => writeln!(f, "{}", real),
-      Number::Integer(int) => writeln!(f, "{}", int)
+      Number::Real(real) => write!(f, "{}", real),
+      Number::Integer(int) => write!(f, "{}", int)
     }
   }
 }
