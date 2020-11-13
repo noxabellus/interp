@@ -65,59 +65,54 @@ pub struct Expr<'src> {
 
 
 /// Wraps a TokenIter to allow syntax analysis
-pub struct ParserIter<'src> {
+pub struct Parser<'src> {
   base: Peekable<TokenIter<'src>>
 }
 
-impl<'src> ops::Deref for ParserIter<'src> {
-  type Target = Peekable<TokenIter<'src>>;
-
-  fn deref (&self) -> &Self::Target { &self.base }
-}
-
-impl<'src> ops::DerefMut for ParserIter<'src> {
-  fn deref_mut (&mut self) -> &mut Self::Target { &mut self.base }
-}
-
-impl<'src> ParserIter<'src> {
-  /// Create a new ParserIter from a Lexical collection
+impl<'src> Parser<'src> {
+  /// Create a new Parser from a Lexical collection
   pub fn new<L: Lexical<'src>> (src: L) -> Self {
     Self { base: src.lex().peekable() }
   }
 
-  fn consume<'res, T: 'res> (&mut self, f: impl FnOnce (TokenData<'res>) -> Option<T>) -> Option<(T, Loc)>
-  where 'src: 'res
-  {
-    if let Some(&Token { data, loc }) = self.peek() {
-      if let Some(value) = f(data) {
-        self.next();
-        return Some((value, loc))
-      }
-    }
-
-    None
-  }
-
-  fn consume_parsed<'int, T> (&mut self, on_fail: &'static str, f: impl FnOnce (TokenData<'int>) -> Option<&'int str>) -> ParseResult<(T, Loc)>
-  where 'src: 'int,
-        T: str::FromStr
-  {
-    match self.consume(f) {
-      Some((int, loc)) => match int.parse() {
-        Ok(out) => Value((out, loc)),
-        Err(_) => Problem(on_fail)
-      }
-      None => Nothing
-    }
-  }
-
   /// Wrap an error in a formatting struct for display
   pub fn display_error<'f> (&mut self, file_name: &'f str, err: &'static str) -> ParseErrDisplay<'f> {
-    ParseErrDisplay(file_name, self.peek().map(|tok| tok.loc), err)
+    ParseErrDisplay(file_name, self.base.peek().map(|tok| tok.loc), err)
+  }
+
+  /// Attempt to parse a complete Expr ast node
+  pub fn expr (&mut self) -> ParseResult<Expr<'src>> {
+    self::expr(self)
   }
 }
 
-/// Display wrapper for formatting parser errors, produced by `ParserIter::display_error`
+
+
+fn consume<'src, 'res, T: 'res> (it: &mut Parser<'src>, f: impl FnOnce (TokenData<'res>) -> Option<T>) -> ParseResult<(T, Loc)>
+where 'src: 'res
+{
+  if let Some(&Token { data, loc }) = it.base.peek() {
+    if let Some(value) = f(data) {
+      it.base.next();
+      return Value((value, loc))
+    }
+  }
+
+  Nothing
+}
+
+fn consume_parsed<'int, 'src: 'int, T: str::FromStr> (it: &mut Parser<'src>, on_fail: &'static str, f: impl FnOnce (TokenData<'int>) -> Option<&'int str>) -> ParseResult<(T, Loc)> {
+  match consume(it, f) {
+    Value((int, loc)) => match int.parse() {
+      Ok(out) => Value((out, loc)),
+      Err(_) => Problem(on_fail)
+    },
+    Problem(e) => Problem(e),
+    Nothing => Nothing
+  }
+}
+
+/// Display wrapper for formatting parser errors, produced by `Parser::display_error`
 pub struct ParseErrDisplay<'f>(&'f str, Option<Loc>, &'static str);
 
 impl<'f> fmt::Display for ParseErrDisplay<'f> {
@@ -134,20 +129,13 @@ impl<'f> fmt::Display for ParseErrDisplay<'f> {
 
 
 /// Allows quick conversion of a Lexical value into parsed ast nodes
-pub trait Syntactic<'src>: Lexical<'src> {
-  /// Wrap a Lexical item in a ParserIter
-  fn syn (self) -> ParserIter<'src>;
-
-  /// Try to parse a Syntactic item as an Expr ast
-  fn expr (self) -> (ParseResult<Expr<'src>>, ParserIter<'src>);
+pub trait Syntactic<'src> {
+  /// Wrap a Lexical item in a Parser
+  fn syn (self) -> Parser<'src>;
 }
 
 impl<'src, T> Syntactic<'src> for T where T: Lexical<'src> {
-  fn syn (self) -> ParserIter<'src> { ParserIter::new(self) }
-  fn expr (self) -> (ParseResult<Expr<'src>>, ParserIter<'src>) {
-    let mut parser = self.syn();
-    (expr(&mut parser), parser)
-  }
+  fn syn (self) -> Parser<'src> { Parser::new(self) }
 }
 
 
@@ -266,66 +254,66 @@ macro_rules! any_of {
 }
 
 
-fn identifier_raw<'src> (it: &mut ParserIter<'src>) -> ParseResult<(&'src str, Loc)> {
-  it.consume(option_matcher!(TokenData::Identifier(identifier) => identifier)).into()
+fn identifier_raw<'src> (it: &mut Parser<'src>) -> ParseResult<(&'src str, Loc)> {
+  consume(it, option_matcher!(TokenData::Identifier(identifier) => identifier))
 }
 
-fn number_raw (it: &mut ParserIter) -> ParseResult<(Number, Loc)> {
-  it.consume_parsed(
+fn number_raw (it: &mut Parser) -> ParseResult<(Number, Loc)> {
+  consume_parsed(it, 
     "Invalid number literal",
     option_matcher!(TokenData::Number(number) => number)
   )
 }
 
-fn boolean_raw (it: &mut ParserIter) -> ParseResult<(bool, Loc)> {
-  it.consume_parsed(
+fn boolean_raw (it: &mut Parser) -> ParseResult<(bool, Loc)> {
+  consume_parsed(it, 
     "Invalid boolean literal",
     option_matcher!(TokenData::Identifier(boolean @ ("true" | "false")) => boolean)
   )
 }
 
-fn nil_raw (it: &mut ParserIter) -> ParseResult<((), Loc)> {
-  it.consume(option_matcher!(TokenData::Identifier("nil") => ())).into()
+fn nil_raw (it: &mut Parser) -> ParseResult<((), Loc)> {
+  consume(it, option_matcher!(TokenData::Identifier("nil") => ()))
 }
 
-fn identifier<'src> (it: &mut ParserIter<'src>) -> ParseResult<Expr<'src>> {
+fn identifier<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
   identifier_raw(it)
     .map(mk_expr(ExprData::Identifier))
 }
 
-fn number<'src> (it: &mut ParserIter<'src>) -> ParseResult<Expr<'src>> {
+fn number<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
   number_raw(it)
     .map(mk_expr(ExprData::Number))
 }
 
-fn boolean<'src> (it: &mut ParserIter<'src>) -> ParseResult<Expr<'src>> {
+fn boolean<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
   boolean_raw(it)
     .map(mk_expr(ExprData::Boolean))
 }
 
-fn nil<'src> (it: &mut ParserIter<'src>) -> ParseResult<Expr<'src>> {
+fn nil<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
   nil_raw(it)
     .map(mk_expr(|_| ExprData::Nil))
 }
 
-fn atom<'src> (it: &mut ParserIter<'src>) -> ParseResult<Expr<'src>> {
+fn atom<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
   any_of!(it, identifier, number, boolean, nil)
 }
 
-fn any_operator (it: &mut ParserIter) -> ParseResult<(Operator, Loc)> {
-  it.consume(option_matcher!(TokenData::Operator(op) => op)).into()
+fn any_operator (it: &mut Parser) -> ParseResult<(Operator, Loc)> {
+  consume(it, option_matcher!(TokenData::Operator(op) => op))
 }
 
-fn any_operator_of (it: &mut ParserIter, allowed: &[Operator]) -> ParseResult<(Operator, Loc)> {
-  it.consume(option_matcher!(TokenData::Operator(op) if allowed.contains(&op) => op)).into()
+fn any_operator_of (it: &mut Parser, allowed: &[Operator]) -> ParseResult<(Operator, Loc)> {
+  consume(it, option_matcher!(TokenData::Operator(op) if allowed.contains(&op) => op))
 }
 
-fn operator (it: &mut ParserIter, op: Operator) -> ParseResult<(Operator, Loc)> {
-  it.consume(option_matcher!(TokenData::Operator(found) if found == op => op)).into()
+fn operator (it: &mut Parser, op: Operator) -> ParseResult<(Operator, Loc)> {
+  consume(it, option_matcher!(TokenData::Operator(found) if found == op => op))
 }
 
-fn keyword<'src> (it: &mut ParserIter<'src>, kw: &str) -> ParseResult<(&'src str, Loc)> {
-  it.consume(option_matcher!(TokenData::Identifier(id) if id == kw => id)).into()
+fn keyword<'src> (it: &mut Parser<'src>, kw: &str) -> ParseResult<(&'src str, Loc)> {
+  consume(it, option_matcher!(TokenData::Identifier(id) if id == kw => id))
 }
 
 
@@ -379,9 +367,9 @@ macro_rules! unwrap {
   };
 }
 
-impl<'src> ParserIter<'src> {
+impl<'src> Parser<'src> {
   fn problem_msg (&mut self, msg_if_not_at_end: &'static str) -> &'static str {
-    if self.peek().is_some() { msg_if_not_at_end }
+    if self.base.peek().is_some() { msg_if_not_at_end }
     else { "Unexpected end of input" }
   }
 
@@ -390,7 +378,7 @@ impl<'src> ParserIter<'src> {
   }
 }
 
-fn unary<'src> (it: &mut ParserIter<'src>) -> ParseResult<Expr<'src>> {
+fn unary<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
   let (operator, loc) = soft_unwrap!(any_operator_of(it, PREFIX));
 
   let operand = unwrap!(pratt(it, Precedence::Unary), it.unexpected());
@@ -399,7 +387,7 @@ fn unary<'src> (it: &mut ParserIter<'src>) -> ParseResult<Expr<'src>> {
 }
 
 
-fn array<'src> (it: &mut ParserIter<'src>) -> ParseResult<Expr<'src>> {
+fn array<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
   let (_, loc) = soft_unwrap!(operator(it, Operator::LBrace));
   let elements = unwrap!(list_body(it, expr, |it| operator(it, Operator::Comma)));
 
@@ -408,7 +396,7 @@ fn array<'src> (it: &mut ParserIter<'src>) -> ParseResult<Expr<'src>> {
   Value(Expr { data: ExprData::Array(elements), loc })
 }
 
-fn sem_group<'src> (it: &mut ParserIter<'src>) -> ParseResult<Expr<'src>> {
+fn sem_group<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
   let (_, loc) = soft_unwrap!(operator(it, Operator::LParen));
   let mut inner = unwrap!(expr(it), "Expected an expression inside semantic grouping ()");
   inner.loc = loc;
@@ -418,14 +406,14 @@ fn sem_group<'src> (it: &mut ParserIter<'src>) -> ParseResult<Expr<'src>> {
   Value(inner)
 }
 
-fn prefix<'src> (it: &mut ParserIter<'src>) -> ParseResult<Expr<'src>> {
+fn prefix<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
   any_of!(it, atom, sem_group, array, unary)
 }
 
 
 
 
-type InfixFn = for<'src> fn (it: &mut ParserIter<'src>, left: Expr<'src>, info: (Precedence::Repr, Operator)) -> ParseResult<Expr<'src>>;
+type InfixFn = for<'src> fn (it: &mut Parser<'src>, left: Expr<'src>, info: (Precedence::Repr, Operator)) -> ParseResult<Expr<'src>>;
 type InfixEntry = (Operator, Precedence::Repr, InfixFn);
 
 const INFIX_TABLE: &[InfixEntry] = {
@@ -468,12 +456,12 @@ const INFIX_TABLE: &[InfixEntry] = {
 };
 
 
-fn operator_in_table (it: &mut ParserIter, prec: Precedence::Repr, table: &[InfixEntry]) -> Option<InfixEntry> {
-  if let Some(&Token { data: TokenData::Operator(op), .. }) = it.peek() {
+fn operator_in_table (it: &mut Parser, prec: Precedence::Repr, table: &[InfixEntry]) -> Option<InfixEntry> {
+  if let Some(&Token { data: TokenData::Operator(op), .. }) = it.base.peek() {
     for &entry @ (table_op, op_prec, _) in table {
       if op == table_op
       && op_prec >= prec {
-        it.next();
+        it.base.next();
 
         return Some(entry)
       }
@@ -483,7 +471,7 @@ fn operator_in_table (it: &mut ParserIter, prec: Precedence::Repr, table: &[Infi
   None
 }
 
-fn list_body<'src, T, U> (it: &mut ParserIter<'src>, mut element: impl FnMut (&mut ParserIter<'src>) -> ParseResult<T>, mut separator: impl FnMut (&mut ParserIter<'src>) -> ParseResult<U>) -> ParseResult<Vec<T>> {
+fn list_body<'src, T, U> (it: &mut Parser<'src>, mut element: impl FnMut (&mut Parser<'src>) -> ParseResult<T>, mut separator: impl FnMut (&mut Parser<'src>) -> ParseResult<U>) -> ParseResult<Vec<T>> {
   let mut items = vec![];
 
   loop {
@@ -503,7 +491,7 @@ fn list_body<'src, T, U> (it: &mut ParserIter<'src>, mut element: impl FnMut (&m
   Value(items)
 }
 
-fn binary<'src> (it: &mut ParserIter<'src>, left: Expr<'src>, (prec, op): (Precedence::Repr, Operator)) -> ParseResult<Expr<'src>> {
+fn binary<'src> (it: &mut Parser<'src>, left: Expr<'src>, (prec, op): (Precedence::Repr, Operator)) -> ParseResult<Expr<'src>> {
   let loc = left.loc;
   let right = unwrap!(pratt(it, prec), it.unexpected());
 
@@ -513,7 +501,7 @@ fn binary<'src> (it: &mut ParserIter<'src>, left: Expr<'src>, (prec, op): (Prece
   })
 }
 
-fn call<'src> (it: &mut ParserIter<'src>, left: Expr<'src>, _: (Precedence::Repr, Operator)) -> ParseResult<Expr<'src>> {
+fn call<'src> (it: &mut Parser<'src>, left: Expr<'src>, _: (Precedence::Repr, Operator)) -> ParseResult<Expr<'src>> {
   let loc = left.loc;
   let args = unwrap!(list_body(it, expr, |it| operator(it, Operator::Comma)));
 
@@ -522,7 +510,7 @@ fn call<'src> (it: &mut ParserIter<'src>, left: Expr<'src>, _: (Precedence::Repr
   Value(Expr { data: ExprData::Call(box left, args), loc })
 }
 
-fn subscript<'src> (it: &mut ParserIter<'src>, left: Expr<'src>, _: (Precedence::Repr, Operator)) -> ParseResult<Expr<'src>> {
+fn subscript<'src> (it: &mut Parser<'src>, left: Expr<'src>, _: (Precedence::Repr, Operator)) -> ParseResult<Expr<'src>> {
   let loc = left.loc;
   let accessor = unwrap!(expr(it), "Expected a subscript accessor expression");
 
@@ -531,7 +519,7 @@ fn subscript<'src> (it: &mut ParserIter<'src>, left: Expr<'src>, _: (Precedence:
   Value(Expr { data: ExprData::Subscript(box left, box accessor), loc })
 }
 
-fn member<'src> (it: &mut ParserIter<'src>, left: Expr<'src>, _: (Precedence::Repr, Operator)) -> ParseResult<Expr<'src>> {
+fn member<'src> (it: &mut Parser<'src>, left: Expr<'src>, _: (Precedence::Repr, Operator)) -> ParseResult<Expr<'src>> {
   let loc = left.loc;
   let (field, _) = unwrap!(identifier_raw(it), "Expected an identifier");
 
@@ -540,7 +528,7 @@ fn member<'src> (it: &mut ParserIter<'src>, left: Expr<'src>, _: (Precedence::Re
 
 
 
-fn pratt<'src> (it: &mut ParserIter<'src>, prec: Precedence::Repr) -> ParseResult<Expr<'src>> {
+fn pratt<'src> (it: &mut Parser<'src>, prec: Precedence::Repr) -> ParseResult<Expr<'src>> {
   let mut left = soft_unwrap!(prefix(it));
 
   while let Some((op, op_prec, op_fn)) = operator_in_table(it, prec, INFIX_TABLE) {
@@ -551,6 +539,6 @@ fn pratt<'src> (it: &mut ParserIter<'src>, prec: Precedence::Repr) -> ParseResul
 }
 
 /// Attempt to parse a complete expression out of a stream
-pub fn expr<'src> (it: &mut ParserIter<'src>) -> ParseResult<Expr<'src>> {
+fn expr<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
   pratt(it, Precedence::FullExpr)
 }

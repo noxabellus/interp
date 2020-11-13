@@ -10,11 +10,11 @@ fn main () {
     Err(e) => panic!("Failed to read file at path {}: {}", TEST_FILE, e)
   };  
 
-  let (expr, mut rem_syntax) = test_file.expr();
+  let mut parser = test_file.syn();
 
-  match expr {
-    Value(expr) => println!("Parsed expr: {:#?}", expr),
-    Problem(e) => println!("{}", rem_syntax.display_error(TEST_FILE, e)),
+  match parser.expr() {
+    Value(v) => println!("Parsed expr: {:#?}", v),
+    Problem(e) => println!("{}", parser.display_error(TEST_FILE, e)),
     Nothing => println!("Parsed nothing")
   }
 }
