@@ -2,7 +2,7 @@
 
 use std::str;
 
-use macros::{ matcher, expand_or_else };
+use macros::{ matcher, expand_or_else, unchecked_destructure };
 
 use super::{
   common::{ Loc, Operator },
@@ -109,11 +109,11 @@ const OP_TABLE: &[(OpChars, Operator)] = {
     '>' => Gt,
     ',' => Comma,
 
-    'n' 'o' 't' => LNot,
+    // 'n' 'o' 't' => LNot, // cant use identifier operators here
     '!' => BNot,
     
-    'a' 'n' 'd' => LAnd,
-    'o' 'r' => LOr,
+    // 'a' 'n' 'd' => LAnd,
+    // 'o' 'r' => LOr,
     '&' => BAnd,
     '|' => BOr,
     '~' => BXOr,
@@ -152,7 +152,21 @@ impl<'src> Iterator for TokenIter<'src> {
       (b'_' | b'a'..=b'z' | b'A'..=b'Z', _, _) => {
         self.scan(matcher!(b'_' | b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9'));
 
-        Some(self.end_tok_with(TokenData::Identifier))
+        let mut tok = self.end_tok_with(TokenData::Identifier);
+
+        unsafe { unchecked_destructure! {
+          tok,
+          Token { data: TokenData::Identifier(ident), .. } => {
+            tok.data = match ident {
+              "not" => TokenData::Operator(Operator::LNot),
+              "and" => TokenData::Operator(Operator::LAnd),
+              "or"  => TokenData::Operator(Operator::LOr),
+              _     => tok.data
+            }
+          }
+        } }
+
+        Some(tok)
       }
 
       (b'.', Some(b'0'..=b'9'), _) | (b'0'..=b'9', _, _) => {
