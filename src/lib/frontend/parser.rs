@@ -136,15 +136,18 @@ impl<'f> fmt::Display for ParseErrDisplay<'f> {
 /// Allows quick conversion of a Lexical value into parsed ast nodes
 pub trait Syntactic<'src>: Lexical<'src> {
   /// Wrap a Lexical item in a ParserIter
-  fn parse (self) -> ParserIter<'src>;
+  fn syn (self) -> ParserIter<'src>;
 
   /// Try to parse a Syntactic item as an Expr ast
-  fn into_expr (self) -> ParseResult<Expr<'src>>;
+  fn expr (self) -> (ParseResult<Expr<'src>>, ParserIter<'src>);
 }
 
 impl<'src, T> Syntactic<'src> for T where T: Lexical<'src> {
-  fn parse (self) -> ParserIter<'src> { ParserIter::new(self) }
-  fn into_expr (self) -> ParseResult<Expr<'src>> { expr(&mut self.parse()) }
+  fn syn (self) -> ParserIter<'src> { ParserIter::new(self) }
+  fn expr (self) -> (ParseResult<Expr<'src>>, ParserIter<'src>) {
+    let mut parser = self.syn();
+    (expr(&mut parser), parser)
+  }
 }
 
 

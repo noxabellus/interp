@@ -244,3 +244,8 @@ impl<'src> Lexical<'src> for &'src [u8] {
 impl<'src> Lexical<'src> for TokenIter<'src> {
   fn lex (self) -> Self { self }
 }
+
+
+impl<'src> Lexical<'src> for &'src String {
+  fn lex (self) -> TokenIter<'src> { self.as_str().lex() }
+}
