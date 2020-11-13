@@ -1,0 +1,6 @@
+[package]
+name = "interp_macros"
+version = "0.0.0"
+
+[lib]
+path = "macros.rs"

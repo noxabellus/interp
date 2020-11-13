@@ -438,7 +438,7 @@ mod tests {
 
     for &align in &[1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024] {
       if align <= page_size {
-        assert_eq!(crate::ptr::align_addr(vmem, align), vmem)
+        assert_eq!(crate::utils::align_addr(vmem, align), vmem)
       }
     }
   } }

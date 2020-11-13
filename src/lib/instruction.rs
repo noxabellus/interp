@@ -121,6 +121,9 @@ pub enum Instruction {
   GetStringCodepoint,
   SetStringCodepoint,
 
+  ConcatString,
+  ConcatArray,
+
 
   // Constructors //
 
@@ -182,6 +185,9 @@ pub enum Instruction {
   OrBoolean,
 
   XorInteger,
+
+  LShiftInteger,
+  RShiftInteger,
 
   EqReal,
   EqInteger,

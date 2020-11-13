@@ -21,3 +21,4 @@ path = "src/main.rs"
 
 
 [dependencies]
+"interp_macros" = { path="./src/lib/macros" }

@@ -3,12 +3,11 @@ use std::{
   intrinsics::likely,
   mem::{ transmute, variant_count },
   hash::{ Hash, Hasher },
-  collections::HashMap,
+  collections::{ HashMap, hash_map::DefaultHasher },
 };
 
-use crate::unchecked_destructure;
-use crate::static_assert;
-use crate::fnv1a::Fnv1a;
+use macros::unchecked_destructure;
+use macros::static_assert;
 use crate::value::TypeDiscriminator;
 
 /// Identifies which sub-variant of a type is represented by an object (E.g. which Record type, etc)
@@ -281,7 +280,7 @@ impl TypeRegistry {
   pub fn create_record (&mut self, field_types: &[TypeID], field_names: &[String]) -> TypeID {
     let (in_field_types, in_field_names) = (field_types, field_names);
 
-    let mut hasher = Fnv1a::default();
+    let mut hasher = DefaultHasher::default();
 
     in_field_types.hash(&mut hasher);
     in_field_names.hash(&mut hasher);
@@ -344,7 +343,7 @@ impl TypeRegistry {
   pub fn create_function (&mut self, kind: FunctionKind, return_type: Option<TypeID>, parameter_types: &[TypeID]) -> TypeID {
     let (in_kind, in_return_type, in_parameter_types) = (&kind, &return_type, parameter_types);
 
-    let mut hasher = Fnv1a::default();
+    let mut hasher = DefaultHasher::default();
 
     in_kind.hash(&mut hasher);
     in_return_type.hash(&mut hasher);
