@@ -43,7 +43,7 @@ impl<'src> Parser<'src> {
   }
 
   /// Determine if there are any remaining Tokens left to parse
-  pub fn is_empty (&mut self) -> bool {
+  pub fn is_finished (&mut self) -> bool {
     self.base.peek().is_none()
   }
 

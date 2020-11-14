@@ -10,7 +10,7 @@ fn main () {
     Err(e) => panic!("Failed to read file at path {}: {}", TEST_FILE, e)
   };
 
-  
+
   let tokens: Vec<Token> = test_file.lex().collect();
   println!("{:#?}", tokens);
 
@@ -23,5 +23,5 @@ fn main () {
     Nothing => println!("Parsed nothing")
   }
 
-  assert!(parser.is_empty(), "Failed to parse all tokens")
+  assert!(parser.is_finished(), "Failed to parse all tokens")
 }
