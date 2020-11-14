@@ -9,10 +9,12 @@ use std::{
 
 use macros::{ option_matcher, expand_or_else, c_enum };
 
+use crate::utils::{ UnescapedChar, /* UnescapedString */ };
+
 use super::{
   common::{ Operator, Loc },
   lexer::{ TokenIter, Lexical },
-  token::{ Token, TokenData },
+  token::{ Token, TokenData, TokenErr, },
   ast::{ Number, Expr, ExprData },
 };
 
@@ -31,13 +33,18 @@ impl<'src> Parser<'src> {
   }
 
   /// Wrap an error in a formatting struct for display
-  pub fn display_error<'f> (&mut self, file_name: &'f str, err: &'static str) -> ParseErrDisplay<'f> {
+  pub fn display_error<'f> (&'f mut self, file_name: &'f str, err: ParseErr) -> ParseErrDisplay<'f> {
     ParseErrDisplay(file_name, self.base.peek().map(|tok| tok.loc), err)
   }
 
   /// Attempt to parse a complete Expr ast node
   pub fn expr (&mut self) -> ParseResult<Expr<'src>> {
     self::expr(self)
+  }
+
+  /// Determine if there are any remaining Tokens left to parse
+  pub fn is_empty (&mut self) -> bool {
+    self.base.peek().is_none()
   }
 
   fn problem_msg (&mut self, msg_if_not_at_end: &'static str) -> &'static str {
@@ -51,7 +58,7 @@ impl<'src> Parser<'src> {
 }
 
 /// Display wrapper for formatting parser errors, produced by `Parser::display_error`
-pub struct ParseErrDisplay<'f>(&'f str, Option<Loc>, &'static str);
+pub struct ParseErrDisplay<'f>(&'f str, Option<Loc>, ParseErr);
 
 impl<'f> fmt::Display for ParseErrDisplay<'f> {
   fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -76,13 +83,30 @@ impl<'src, T> Syntactic<'src> for T where T: Lexical<'src> {
   fn syn (self) -> Parser<'src> { Parser::new(self) }
 }
 
+/// Represents a syntactic error
+pub enum ParseErr {
+  /// An error with the formation of Tokens
+  Lexical(TokenErr),
+  /// An error with the arrangement of Tokens
+  Syntactic(&'static str)
+}
+
+impl fmt::Display for ParseErr {
+  fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Self::Lexical(e) => write!(f, "{}", e),
+      Self::Syntactic(s) => write!(f, "{}", s)
+    }
+  }
+}
+
 
 /// The outcome of attempted parsing of a portion of a token stream
 pub enum ParseResult<T> {
   /// Parsing succeeded
   Value(T),
   /// Parsing failed due to a syntax error
-  Problem(&'static str),
+  Problem(ParseErr),
   /// Parsing failed due to no matching value, but was not an error
   Nothing
 }
@@ -130,12 +154,21 @@ macro_rules! soft_unwrap {
   };
 }
 
+fn mk_problem<T> (err: ParseErr) -> ParseResult<T> {
+  #[cfg(debug_assertions)] {
+    println!("Making ParseResult::Problem({})", err)
+  }
+  Problem(err)
+}
+
 macro_rules! unwrap {
   ($expr:expr $(, $problem:expr)?) => {
     match $expr {
       Value(v) => v,
       Problem(e) => return Problem(e),
-      Nothing => return Problem(expand_or_else!({ $($problem)? }, { "Expected a value" }))
+      Nothing => {
+        return mk_problem(ParseErr::Syntactic(expand_or_else!({ $($problem)? }, { "Expected a value" })))
+      }
     }
   };
 }
@@ -145,9 +178,13 @@ fn consume<'src, 'res, T: 'res> (it: &mut Parser<'src>, f: impl FnOnce (TokenDat
 where 'src: 'res
 {
   if let Some(&Token { data, loc }) = it.base.peek() {
-    if let Some(value) = f(data) {
-      it.base.next();
-      return Value((value, loc))
+    match data {
+      TokenData::Error(e) => return Problem(ParseErr::Lexical(e)),
+      
+      _ => if let Some(value) = f(data) {
+        it.base.next();
+        return Value((value, loc))
+      }
     }
   }
 
@@ -155,16 +192,24 @@ where 'src: 'res
 }
 
 fn consume_parsed<'int, 'src: 'int, T: str::FromStr> (it: &mut Parser<'src>, on_fail: &'static str, f: impl FnOnce (TokenData<'int>) -> Option<&'int str>) -> ParseResult<(T, Loc)> {
-  match consume(it, f) {
-    Value((int, loc)) => match int.parse() {
-      Ok(out) => Value((out, loc)),
-      Err(_) => Problem(on_fail)
-    },
-    Problem(e) => Problem(e),
-    Nothing => Nothing
+  if let Some(&Token { data, loc }) = it.base.peek() {
+    match data {
+      TokenData::Error(e) => return Problem(ParseErr::Lexical(e)),
+      
+      _ => if let Some(int) = f(data) {
+        return match int.parse() {
+          Ok(out) => {
+            it.base.next();
+            Value((out, loc))
+          },
+          Err(_) => Problem(ParseErr::Syntactic(on_fail))
+        }
+      }
+    }
   }
+  
+  Nothing
 }
-
 
 const fn mk_expr<'src, T> (x: impl FnOnce (T) -> ExprData<'src>) -> impl FnOnce ((T, Loc)) -> Expr<'src> {
   move |(v, loc)| Expr { data: x(v), loc }
@@ -173,6 +218,14 @@ const fn mk_expr<'src, T> (x: impl FnOnce (T) -> ExprData<'src>) -> impl FnOnce 
 
 fn identifier_raw<'src> (it: &mut Parser<'src>) -> ParseResult<(&'src str, Loc)> {
   consume(it, option_matcher!(TokenData::Identifier(identifier) => identifier))
+}
+
+fn string_raw<'src> (it: &mut Parser<'src>) -> ParseResult<(&'src str, Loc)> {
+  consume(it, option_matcher!(TokenData::String(string) => string))
+  // consume_parsed(it,
+  //   "Invalid sequence in string literal",
+  //   option_matcher!(TokenData::String(string) => string)
+  // ).map(|(us, loc): (UnescapedString, Loc)| (us.inner(), loc))
 }
 
 fn number_raw (it: &mut Parser) -> ParseResult<(Number, Loc)> {
@@ -189,6 +242,14 @@ fn boolean_raw (it: &mut Parser) -> ParseResult<(bool, Loc)> {
   )
 }
 
+fn character_raw (it: &mut Parser) -> ParseResult<(char, Loc)> {
+  consume_parsed(it,
+    "Invalid character literal",
+    option_matcher!(TokenData::Character(ch) => ch)
+  ).map(|(uch, loc): (UnescapedChar, Loc)| (uch.inner(), loc))
+}
+
+
 fn nil_raw (it: &mut Parser) -> ParseResult<((), Loc)> {
   consume(it, option_matcher!(TokenData::Identifier("nil") => ()))
 }
@@ -197,7 +258,7 @@ fn any_operator (it: &mut Parser) -> ParseResult<(Operator, Loc)> {
   consume(it, option_matcher!(TokenData::Operator(op) => op))
 }
 
-fn any_operator_of (it: &mut Parser, allowed: &[Operator]) -> ParseResult<(Operator, Loc)> {
+fn any_operator_of<'src> (it: &mut Parser<'src>, allowed: &[Operator]) -> ParseResult<(Operator, Loc)> {
   consume(it, option_matcher!(TokenData::Operator(op) if allowed.contains(&op) => op))
 }
 
@@ -333,6 +394,11 @@ fn identifier<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
     .map(mk_expr(ExprData::Identifier))
 }
 
+fn string<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
+  string_raw(it)
+    .map(mk_expr(ExprData::String))
+}
+
 fn number<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
   number_raw(it)
     .map(mk_expr(ExprData::Number))
@@ -343,13 +409,18 @@ fn boolean<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
     .map(mk_expr(ExprData::Boolean))
 }
 
+fn character<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
+  character_raw(it)
+    .map(mk_expr(ExprData::Character))
+}
+
 fn nil<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
   nil_raw(it)
     .map(mk_expr(|_| ExprData::Nil))
 }
 
 fn atom<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
-  any_of!(it, identifier, number, boolean, nil)
+  any_of!(it, identifier, string, number, boolean, character, nil)
 }
 
 fn array<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
@@ -398,7 +469,7 @@ fn binary<'src> (it: &mut Parser<'src>, left: Expr<'src>, (prec, op): (Precedenc
 fn call<'src> (it: &mut Parser<'src>, left: Expr<'src>, _: (Precedence::Repr, Operator)) -> ParseResult<Expr<'src>> {
   let loc = left.loc;
   let args = unwrap!(list_body(it, expr, |it| operator(it, Operator::Comma)));
-
+  
   unwrap!(operator(it, Operator::RParen), "Expected ) to close argument list or , to separate arguments");
 
   Value(Expr { data: ExprData::Call(box left, args), loc })

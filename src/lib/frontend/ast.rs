@@ -44,6 +44,8 @@ pub enum ExprData<'src> {
   Nil,
   Number(Number),
   Boolean(bool),
+  Character(char),
+  String(&'src str),
   Identifier(&'src str),
   Array(Vec<Expr<'src>>),
   Unary(Operator, Box<Expr<'src>>),
@@ -53,6 +55,7 @@ pub enum ExprData<'src> {
   Subscript(Box<Expr<'src>>, Box<Expr<'src>>)
 }
 
+
 impl<'src> fmt::Debug for ExprData<'src> {
   fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     use ExprData::*;
@@ -60,6 +63,8 @@ impl<'src> fmt::Debug for ExprData<'src> {
       Nil => write!(f, "nil"),
       Number(number) => write!(f, "{}", number),
       Boolean(boolean) => write!(f, "{}", boolean),
+      Character(ch) => write!(f, "'{}'", ch.escape_default()),
+      String(string) => write!(f, "\"{}\"", string.escape_default()),
       Identifier(identifier) => write!(f, "{}", identifier),
       Array(array) => f.debug_list().entries(array).finish(),
       Unary(operator, operand) => f.debug_tuple("Unary").field(operator).field(operand).finish(),

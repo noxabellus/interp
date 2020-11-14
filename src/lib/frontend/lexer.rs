@@ -6,7 +6,7 @@ use macros::{ matcher, expand_or_else, unchecked_destructure, discard };
 
 use super::{
   common::{ Loc, Operator },
-  token::{ UnrecognizedByte, Token, TokenData },
+  token::{ Token, TokenData, TokenErr },
 };
 
 
@@ -36,6 +36,10 @@ impl<'src> TokenIter<'src> {
     }
   }
 
+  fn prev (&self) -> Option<u8> {
+    self.src.get(self.loc.index.checked_sub(1)?).copied()
+  }
+
   fn curr (&self) -> Option<u8> {
     self.src.get(self.loc.index).copied()
   }
@@ -59,10 +63,14 @@ impl<'src> TokenIter<'src> {
     self.loc.index += 1;
   }
 
-  fn scan<F: FnMut (u8) -> bool> (&mut self, mut f: F) {
-    while let Some(ch) = self.curr() {
-      if f(ch) { self.advance() }
-      else { break }
+  fn scan<F: FnMut (u8) -> bool> (&mut self, mut f: F) -> bool {
+    loop {
+      if let Some(ch) = self.curr() {
+        if f(ch) { self.advance() }
+        else { return true }
+      } else {
+        return false
+      }
     }
   }
 
@@ -111,6 +119,35 @@ impl<'src> Iterator for TokenIter<'src> {
       (:BODY: [$($tt:tt)+] $body:tt) => { $body };
     }
 
+    macro_rules! string_body {
+      ($kind:ident, $delim:literal) => {
+        {
+          loop {
+            if self.scan(matcher!(! $delim)) {
+              let prev = self.prev();
+              self.advance();
+              if prev != Some(b'\\') {
+                break
+              }
+            } else {
+              return Some(self.end_tok(TokenData::Error(TokenErr::Unterminated)))
+            }
+          }
+          
+          let mut tok = self.end_tok_with(TokenData::$kind);
+
+          unsafe { unchecked_destructure! {
+            &mut tok,
+            Token { data: TokenData::$kind(x), .. } => {
+              *x = &(*x)[1..x.len()-1]
+            }
+          } }
+
+          tok
+        }
+      }
+    }
+
     Some(lexer_cases! {
       match ((first_ch, second_ch)) {
         ((b'_' | b'a'..=b'z' | b'A'..=b'Z', _)) => {
@@ -147,6 +184,10 @@ impl<'src> Iterator for TokenIter<'src> {
 
           self.end_tok_with(TokenData::Number)
         },
+
+        ((b'"', _)) => { string_body!(String, b'"') },
+
+        ((b'\'', _)) => { string_body!(Character, b'\'')},
 
         #op (b'+') => Add,
         #op (b'-') => Sub,
@@ -187,9 +228,7 @@ impl<'src> Iterator for TokenIter<'src> {
         #op (b'{') => LBracket,
         #op (b'}') => RBracket,
 
-        (_) => {
-          self.end_tok(TokenData::Error(UnrecognizedByte(first_ch)))
-        }
+        (_) => { self.end_tok(TokenData::Error(TokenErr::UnrecognizedByte(first_ch))) }
       }
     })
   }

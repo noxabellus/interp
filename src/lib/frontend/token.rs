@@ -4,14 +4,29 @@ use std::fmt;
 
 use super::common::{ Operator, Loc };
 
-/// Wraps an erroneous byte when creating an error token
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct UnrecognizedByte(pub u8);
 
-impl fmt::Debug for UnrecognizedByte {
+/// Represents a lexical error
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TokenErr {
+  /// A byte that was not expected in whatever syntactic context it was found
+  UnrecognizedByte(u8),
+  /// An unterminated Token, usually a string literal
+  Unterminated
+}
+
+
+impl fmt::Display for TokenErr {
   fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    if self.0.is_ascii() { write!(f, "{:?}", self.0 as char) }
-    else { write!(f, "byte({:x?})", self.0) }
+    match self {
+      Self::UnrecognizedByte(byte) => {
+        if byte.is_ascii() { write!(f, "unexpected char {:?}", *byte as char) }
+        else { write!(f, "unexpected byte {:x?}", byte) }
+      }
+
+      Self::Unterminated => {
+        write!(f, "unterminated literal")
+      }
+    }
   }
 }
 
@@ -21,15 +36,24 @@ impl fmt::Debug for UnrecognizedByte {
 pub enum TokenData<'src> {
   Identifier(&'src str),
   Number(&'src str),
+  String(&'src str),
+  Character(&'src str),
+
   Operator(Operator),
 
-  Error(UnrecognizedByte)
+  Error(TokenErr)
 }
 
 /// An atom of source
 #[allow(missing_docs)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Token<'src> {
   pub data: TokenData<'src>,
   pub loc: Loc
+}
+
+impl<'src> fmt::Debug for Token<'src> {
+  fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{:?} {:?}", self.data, self.loc)
+  }
 }

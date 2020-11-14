@@ -1,7 +1,8 @@
 /// Constructs a closure that returns the result of a matches! expression
 #[macro_export]
 macro_rules! matcher {
-  ($($pats:pat)|+) => { |x| matches!(x, $($pats)|+) }
+  ($($pats:pat)|+) => { |x| matches!(x, $($pats)|+) };
+  (! $($pats:pat)|+) => { |x| !matches!(x, $($pats)|+) };
 }
 
 /// Constructs a closure that returns Some(match) or None depending on the result of an if let pattern
