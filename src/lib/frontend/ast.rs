@@ -17,8 +17,10 @@ pub enum Number {
 impl fmt::Display for Number {
   fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
-      Number::Real(real) => write!(f, "{}", real),
-      Number::Integer(int) => write!(f, "{}", int)
+      // using debug fmt because display for reals doesnt
+      // print `.0` on nums with no fractional part
+      Number::Real(real) => write!(f, "{:?}", real),
+      Number::Integer(int) => write!(f, "{:?}", int)
     }
   }
 }

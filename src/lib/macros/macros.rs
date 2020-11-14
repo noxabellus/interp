@@ -21,10 +21,21 @@ macro_rules! result_matcher {
 /// Used to expand an optional macro segment or substitute a default
 #[macro_export]
 macro_rules! expand_or_else {
-  (, $default:expr) => { $default };
-  ($value:expr, $default:expr) => { $value };
+  ({ }, { $($default:tt)* }) => { $($default)* };
+  ({ $($value:tt)* }, { $($default:tt)* }) => { $($value)* };
 }
 
+/// Used to expand some pattern in a macro segment without actually using its value
+#[macro_export]
+macro_rules! discard {
+  ($($content:tt)*) => { };
+}
+
+/// Used to expand some pattern in a macro segment but use different content instead of its value
+#[macro_export]
+macro_rules! discard_replace {
+  ({ $($replace:tt)* }, { $($content:tt)* }) => { $($replace)* };
+}
 
 
 /// Unsafely destructures a refutable pattern

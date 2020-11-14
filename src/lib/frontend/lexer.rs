@@ -2,7 +2,7 @@
 
 use std::str;
 
-use macros::{ matcher, expand_or_else, unchecked_destructure };
+use macros::{ matcher, expand_or_else, unchecked_destructure, discard };
 
 use super::{
   common::{ Loc, Operator },
@@ -79,65 +79,10 @@ impl<'src> TokenIter<'src> {
 }
 
 
-type OpChars = (u8, Option<u8>, Option<u8>);
-
-const OP_TABLE: &[(OpChars, Operator)] = {
-  macro_rules! table {
-    ( $($first_ch:literal $($second_ch:literal $($third_ch:literal)?)? => $op:ident),* $(,)?) => {
-      &[ $((($first_ch as u8, expand_or_else!($(Some($second_ch as u8))?, None), expand_or_else!($($(Some($third_ch as u8))?)?, None)), Operator::$op)),* ]
-    };
-  }
-
-  table! [
-    '+' => Add,
-    '-' => Sub,
-    '*' => Mul,
-    '/' => Div,
-    '%' => Rem,
-    '^' => Pow,
-
-    '>' '+' '<' => Concat,
-
-    '<' '<' => LShift,
-    '>' '>' => RShift,
-
-    '=' '=' => Eq,
-    '!' '=' => Ne,
-    '<' '=' => Le,
-    '>' '=' => Ge,
-    '<' => Lt,
-    '>' => Gt,
-    ',' => Comma,
-
-    // 'n' 'o' 't' => LNot, // cant use identifier operators here
-    '!' => BNot,
-    
-    // 'a' 'n' 'd' => LAnd,
-    // 'o' 'r' => LOr,
-    '&' => BAnd,
-    '|' => BOr,
-    '~' => BXOr,
-    
-    '=' => Assign,
-    ',' => Comma,
-    '.' => Dot,
-    ';' => Semi,
-    ':' => Colon,
-
-    '(' => LParen,
-    ')' => RParen,
-    '[' => LBrace,
-    ']' => RBrace,
-
-    '{' => LBracket,
-    '}' => RBracket,
-  ]
-};
-
 
 impl<'src> Iterator for TokenIter<'src> {
   type Item = Token<'src>;
-  
+
   fn next (&mut self) -> Option<Self::Item> {
     self.scan(|ch| ch.is_ascii_whitespace());
 
@@ -146,61 +91,107 @@ impl<'src> Iterator for TokenIter<'src> {
 
     self.advance();
 
-    let third_ch = self.peek();
-
-    match (first_ch, second_ch, third_ch) {
-      (b'_' | b'a'..=b'z' | b'A'..=b'Z', _, _) => {
-        self.scan(matcher!(b'_' | b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9'));
-
-        let mut tok = self.end_tok_with(TokenData::Identifier);
-
-        unsafe { unchecked_destructure! {
-          tok,
-          Token { data: TokenData::Identifier(ident), .. } => {
-            tok.data = match ident {
-              "not" => TokenData::Operator(Operator::LNot),
-              "and" => TokenData::Operator(Operator::LAnd),
-              "or"  => TokenData::Operator(Operator::LOr),
-              _     => tok.data
-            }
-          }
-        } }
-
-        Some(tok)
-      }
-
-      (b'.', Some(b'0'..=b'9'), _) | (b'0'..=b'9', _, _) => {
-        let mut dec = first_ch == b'.';
-        
-        self.scan(|ch| {
-          if dec {
-            ch.is_ascii_digit()
-          } else if ch == b'.' {
-            dec = true;
-            true
-          } else {
-            ch.is_ascii_digit()
-          }
-        });
-
-        Some(self.end_tok_with(TokenData::Number))
-      }
-      
-      op => {
-        for &(abc @ (a, b, c), data) in OP_TABLE {
-          if op == abc {
-            self.advance();
-            return Some(self.end_tok(TokenData::Operator(data)))
-          } else if (op.0, op.1) == (a, b) && c == None
-                 || op.0 == a && (b, c) == (None, None)
-          {
-            return Some(self.end_tok(TokenData::Operator(data)))
-          }
+    macro_rules! lexer_cases {
+      (match ($expr:expr) {
+        $($(#$op_marker:ident)? ($($pat:tt)*) => $body:tt),*
+      }) => {
+        #[allow(unused_parens)]
+        match $expr {
+          $(lexer_cases!(:PAT: $(#$op_marker)? $($pat)*) => lexer_cases!(:BODY: [$(#$op_marker)? $($pat)*] $body)),*
         }
-
-        Some(self.end_tok(TokenData::Error(UnrecognizedByte(first_ch))))
-      }
+      };
+      
+      (:PAT: #op $first_ch:literal $($second_ch:literal)?) => { (($first_ch, expand_or_else!({ $(Some($second_ch))? }, { _ }))) };
+      (:PAT: $($pat:pat)|+) => { ($($pat)|+) };
+      
+      (:BODY: [#op $first_ch:literal $($second_ch:literal)?] $op:ident) => { {
+        $( discard!($second_ch); self.advance(); )?
+        self.end_tok(TokenData::Operator(Operator::$op))
+      } };
+      (:BODY: [$($tt:tt)+] $body:tt) => { $body };
     }
+
+    Some(lexer_cases! {
+      match ((first_ch, second_ch)) {
+        ((b'_' | b'a'..=b'z' | b'A'..=b'Z', _)) => {
+          self.scan(matcher!(b'_' | b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9'));
+          
+          let mut tok = self.end_tok_with(TokenData::Identifier);
+
+          unsafe { unchecked_destructure! {
+            tok,
+            Token { data: TokenData::Identifier(ident), .. } => {
+              tok.data = match ident {
+                "not" => TokenData::Operator(Operator::LNot),
+                "and" => TokenData::Operator(Operator::LAnd),
+                "or"  => TokenData::Operator(Operator::LOr),
+                _     => tok.data
+              }
+            }
+          } }
+
+          tok
+        },
+
+        ((b'.', Some(b'0'..=b'9')) | (b'0'..=b'9', _)) => {
+          let mut dec = first_ch == b'.';
+
+          self.scan(|ch| {
+            if ch == b'.' && !dec {
+              dec = true;
+              true
+            } else {
+              ch.is_ascii_digit()
+            }
+          });
+
+          self.end_tok_with(TokenData::Number)
+        },
+
+        #op (b'+') => Add,
+        #op (b'-') => Sub,
+        #op (b'*') => Mul,
+        #op (b'/') => Div,
+        #op (b'%') => Rem,
+        #op (b'^') => Pow,
+
+        #op (b'.' b'.') => Concat,
+
+        #op (b'<' b'<') => LShift,
+        #op (b'>' b'>') => RShift,
+
+        #op (b'=' b'=') => Eq,
+        #op (b'!' b'=') => Ne,
+        #op (b'<' b'=') => Le,
+        #op (b'>' b'=') => Ge,
+        #op (b'<') => Lt,
+        #op (b'>') => Gt,
+
+        #op (b'!') => BNot,
+
+        #op (b'&') => BAnd,
+        #op (b'|') => BOr,
+        #op (b'~') => BXOr,
+
+        #op (b'=') => Assign,
+        #op (b',') => Comma,
+        #op (b'.') => Dot,
+        #op (b';') => Semi,
+        #op (b':') => Colon,
+
+        #op (b'(') => LParen,
+        #op (b')') => RParen,
+        #op (b'[') => LBrace,
+        #op (b']') => RBrace,
+
+        #op (b'{') => LBracket,
+        #op (b'}') => RBracket,
+
+        (_) => {
+          self.end_tok(TokenData::Error(UnrecognizedByte(first_ch)))
+        }
+      }
+    })
   }
 }
 

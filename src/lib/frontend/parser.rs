@@ -135,7 +135,7 @@ macro_rules! unwrap {
     match $expr {
       Value(v) => v,
       Problem(e) => return Problem(e),
-      Nothing => return Problem(expand_or_else!($($problem)?, "Expected a value"))
+      Nothing => return Problem(expand_or_else!({ $($problem)? }, { "Expected a value" }))
     }
   };
 }
