@@ -5,6 +5,7 @@ use crate::{
   stack::Stack,
   typeinfo::TypeRegistry,
   global::GlobalRegistry,
+  module::ModuleRegistry,
   object,
 };
 
@@ -22,11 +23,14 @@ pub struct CallFrame {
 
 
 /// Contains shared contextual information for all VM Fibers
+#[derive(Default)]
 pub struct Context {
   /// All types known by the VM
   pub types: TypeRegistry,
   /// All global variables known by the VM
   pub globals: GlobalRegistry,
+  /// All modules known by the VM
+  pub modules: ModuleRegistry,
 }
 
 impl Context {
@@ -35,8 +39,6 @@ impl Context {
     Self { .. Default::default() }
   }
 }
-
-impl Default for Context { fn default () -> Self { Self::new() } }
 
 
 /// The main VM execution data structure containing the stack and other data required to execute code

@@ -30,6 +30,7 @@
   or_patterns, bindings_after_at,
   stmt_expr_attributes,
   llvm_asm,
+  hash_raw_entry,
 )]
 
 extern crate self as interp;
@@ -45,6 +46,7 @@ pub mod object;
 pub mod stack;
 pub mod instruction;
 pub mod global;
+pub mod module;
 pub mod vm;
 
 pub mod frontend;

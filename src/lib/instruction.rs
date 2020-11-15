@@ -8,6 +8,7 @@ use std::{
 
 use crate::{
   global::GlobalID,
+  module::ModuleID,
   typeinfo::{ TypeID, TypeKind }
 };
 
@@ -100,9 +101,9 @@ pub enum Instruction {
   StoreUpvalue, // (UpvalueID),
 
   LoadGlobal, // (GlobalID),
-  LoadGlobalDeferred,
+  LoadGlobalDeferred, // (ModuleID)
   StoreGlobal, // (GlobalID),
-  StoreGlobalDeferred,
+  StoreGlobalDeferred, // (ModuleID)
 
 
   // Collection access //
@@ -127,24 +128,18 @@ pub enum Instruction {
 
   // Constructors //
 
-  CreateRecord, // (TypeID),
-  CreateArray, // (TypeID),
-  CreateMap, // (TypeID),
+  CreateRecord, // (TypeID, FieldID),
+  CreateArray, // (TypeID, i32),
+  CreateMap, // (TypeID, u32),
   CreateString,
   CreateClosure,
 
 
   // Constant values //
 
-  ConstantReal, // (ConstantID),
-  ConstantInteger, // (ConstantID),
-  ConstantCharacter, // (ConstantID),
-  ConstantBoolean, // (ConstantID),
-  ConstantTypeID, // (ConstantID),
-  ConstantNil,
-  ConstantString, // (ConstantID),
-  ConstantFunction, // (ConstantID),
-
+  Constant, // (ConstantID),
+  Nil,
+  
 
   // Unary ops //
 
@@ -239,14 +234,14 @@ pub enum Instruction {
   CastIntegerToCharacter,
   CastIntegerToBoolean,
   CastBooleanToInteger,
-  CastDeferred,
+  // CastDeferred, // not sure what this would do
 
 
   // Introspection //
 
   TypeIDOfLocal, // (LocalID),
   TypeIDOfGlobal, // (GlobalID),
-  TypeIDOfGlobalDeferred,
+  TypeIDOfGlobalDeferred, // (ModuleID)
   TypeIDOfField, // (FieldID),
   TypeIDOfFieldDeferred,
   TypeIDOfKey,
@@ -255,12 +250,11 @@ pub enum Instruction {
   TypeIDOfReturn,
   TypeIDOfValue,
   
-  GlobalExists,
+  ModuleExists,
+  GlobalExists, // (ModuleID)
   FieldExists,
   ParameterExists,
   ReturnExists,
-
-  TypeIDToName,
 
   FieldCount,
   ElementCount,
@@ -303,6 +297,7 @@ impl Codable for ConstantID { }
 impl Codable for LocalID { }
 impl Codable for UpvalueID { }
 impl Codable for GlobalID { }
+impl Codable for ModuleID { }
 impl Codable for FieldID { }
 impl Codable for ParameterID { }
 impl Codable for JumpOffset { }

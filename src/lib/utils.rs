@@ -2,7 +2,15 @@
 
 #![allow(dead_code)]
 
-use std::{ str, fmt };
+use std::{
+  str, fmt,
+  borrow::{ Borrow, ToOwned },
+  hash::{ Hash, BuildHasher },
+  collections::hash_map::{
+    HashMap,
+    RawEntryMut
+  }
+};
 
 
 /// Give an "a" or an "an" depending on whether a string starts with a vowel or not
@@ -205,4 +213,45 @@ impl str::FromStr for UnescapedString {
 impl UnescapedString {
   /// Extract the `String` from an `UnescapedString`
   pub fn inner (self) -> String { self.0 }
+}
+
+
+
+
+/// Allows inserting values into HashMaps if the key provided is not already present
+pub trait InsertUnique
+{
+  /// The type of Key used by this HashMap
+  type Key;
+
+  /// The type of Value used by this HashMap
+  type Value;
+
+  /// Insert a value into this HashMap if the provided key is not already present;
+  /// Returns false if the key was already bound to a value
+  fn insert_unique<Q> (&mut self, key: &Q, value: Self::Value) -> bool
+  where Self::Key: Borrow<Q>,
+        Q: Eq + Hash + ToOwned<Owned = Self::Key> + ?Sized;
+}
+
+impl<K, V, H> InsertUnique for HashMap<K, V, H>
+where K: Hash,
+      H: BuildHasher
+{
+  type Key = K;
+  type Value = V;
+
+  fn insert_unique<Q> (&mut self, key: &Q, value: V) -> bool
+  where Self::Key: Borrow<Q>,
+        Q: Eq + Hash + ToOwned<Owned = Self::Key> + ?Sized
+  {
+    match self.raw_entry_mut().from_key(key) {
+      RawEntryMut::Occupied(_) => false,
+      RawEntryMut::Vacant(slot) => {
+        let key = key.to_owned();
+        slot.insert(key, value);
+        true
+      }
+    }
+  }
 }
