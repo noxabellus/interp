@@ -168,7 +168,7 @@ impl<'src> Iterator for TokenIter<'src> {
                 "and" => Operator(LAnd),
                 "or"  => Operator(LOr),
 
-                "global" => Keyword(Local),
+                "global" => Keyword(Global),
                 "export" => Keyword(Export),
                 "import" => Keyword(Import),
 
