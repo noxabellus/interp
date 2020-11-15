@@ -4,10 +4,13 @@
   incomplete_features,
   clippy::inconsistent_digit_grouping,
   clippy::unusual_byte_groupings,
-  clippy::match_ref_pats
+  clippy::match_ref_pats,
 )]
 
-#![warn(missing_docs)]
+#![warn(
+  missing_docs,
+  clippy::if_same_then_else,
+)]
 
 #![feature(
   test,
@@ -26,7 +29,7 @@
   box_syntax, box_patterns,
   or_patterns, bindings_after_at,
   stmt_expr_attributes,
-  llvm_asm
+  llvm_asm,
 )]
 
 extern crate self as interp;

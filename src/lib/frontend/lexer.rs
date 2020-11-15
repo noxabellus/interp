@@ -5,9 +5,14 @@ use std::str;
 use macros::{ matcher, expand_or_else, unchecked_destructure, discard };
 
 use super::{
-  common::{ Loc, Operator },
+  common::{ Loc, Operator, Keyword },
   token::{ Token, TokenData, TokenErr },
 };
+
+use std::string::String;
+use TokenData::*;
+use Operator::*;
+use Keyword::*;
 
 
 /// Iterator providing lexical analysis of a source
@@ -114,7 +119,7 @@ impl<'src> Iterator for TokenIter<'src> {
       
       (:BODY: [#op $first_ch:literal $($second_ch:literal)?] $op:ident) => { {
         $( discard!($second_ch); self.advance(); )?
-        self.end_tok(TokenData::Operator(Operator::$op))
+        self.end_tok(Operator($op))
       } };
       (:BODY: [$($tt:tt)+] $body:tt) => { $body };
     }
@@ -130,15 +135,15 @@ impl<'src> Iterator for TokenIter<'src> {
                 break
               }
             } else {
-              return Some(self.end_tok(TokenData::Error(TokenErr::Unterminated)))
+              return Some(self.end_tok(Error(TokenErr::Unterminated)))
             }
           }
           
-          let mut tok = self.end_tok_with(TokenData::$kind);
+          let mut tok = self.end_tok_with($kind);
 
           unsafe { unchecked_destructure! {
             &mut tok,
-            Token { data: TokenData::$kind(x), .. } => {
+            Token { data: $kind(x), .. } => {
               *x = &(*x)[1..x.len()-1]
             }
           } }
@@ -153,15 +158,32 @@ impl<'src> Iterator for TokenIter<'src> {
         ((b'_' | b'a'..=b'z' | b'A'..=b'Z', _)) => {
           self.scan(matcher!(b'_' | b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9'));
           
-          let mut tok = self.end_tok_with(TokenData::Identifier);
+          let mut tok = self.end_tok_with(Identifier);
 
           unsafe { unchecked_destructure! {
             tok,
-            Token { data: TokenData::Identifier(ident), .. } => {
+            Token { data: Identifier(ident), .. } => {
               tok.data = match ident {
-                "not" => TokenData::Operator(Operator::LNot),
-                "and" => TokenData::Operator(Operator::LAnd),
-                "or"  => TokenData::Operator(Operator::LOr),
+                "not" => Operator(LNot),
+                "and" => Operator(LAnd),
+                "or"  => Operator(LOr),
+
+                "type" => Keyword(Type),
+                "let" => Keyword(Let),
+                
+                "map" => Keyword(Map),
+                "record" => Keyword(Record),
+
+                "function" => Keyword(Function),
+                "fn" => Keyword(Fn),
+
+                "loop" => Keyword(Loop),
+                "if" => Keyword(If),
+                "else" => Keyword(Else),
+
+                "return" => Keyword(Return),
+                "break" => Keyword(Break),
+                "continue" => Keyword(Continue),
                 _     => tok.data
               }
             }
@@ -169,6 +191,7 @@ impl<'src> Iterator for TokenIter<'src> {
 
           tok
         },
+
 
         ((b'.', Some(b'0'..=b'9')) | (b'0'..=b'9', _)) => {
           let mut dec = first_ch == b'.';
@@ -182,12 +205,16 @@ impl<'src> Iterator for TokenIter<'src> {
             }
           });
 
-          self.end_tok_with(TokenData::Number)
+          self.end_tok_with(Number)
         },
+
 
         ((b'"', _)) => { string_body!(String, b'"') },
 
         ((b'\'', _)) => { string_body!(Character, b'\'')},
+
+
+        #op (b'-' b'>') => Arrow,
 
         #op (b'+') => Add,
         #op (b'-') => Sub,
@@ -215,6 +242,7 @@ impl<'src> Iterator for TokenIter<'src> {
         #op (b'~') => BXOr,
 
         #op (b'=') => Assign,
+
         #op (b',') => Comma,
         #op (b'.') => Dot,
         #op (b';') => Semi,
@@ -228,7 +256,7 @@ impl<'src> Iterator for TokenIter<'src> {
         #op (b'{') => LBracket,
         #op (b'}') => RBracket,
 
-        (_) => { self.end_tok(TokenData::Error(TokenErr::UnrecognizedByte(first_ch))) }
+        (_) => { self.end_tok(Error(TokenErr::UnrecognizedByte(first_ch))) }
       }
     })
   }

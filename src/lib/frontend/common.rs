@@ -38,8 +38,22 @@ pub enum Operator {
 
 
   Assign,
+  Arrow,
   Comma, Dot, Semi, Colon,
   LParen, RParen,
   LBrace, RBrace,
   LBracket, RBracket,
+}
+
+
+
+/// All keywords in a valid grammar
+#[allow(missing_docs)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Keyword {
+  Type, Let,
+  Map, Record,
+  Function, Fn,
+  Loop, If, Else,
+  Return, Break, Continue,
 }
