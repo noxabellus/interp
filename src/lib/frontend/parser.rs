@@ -776,7 +776,6 @@ use expr::expr;
 mod ty_expr {
   use super::*;
 
-
   fn record<'src> (it: &mut Parser<'src>) -> ParseResult<TyExpr<'src>> {
     let (_, loc) = soft_unwrap!(keyword(it, Record));
 
@@ -1031,23 +1030,20 @@ fn block<'src> (it: &mut Parser<'src>) -> ParseResult<Block<'src>> {
   let mut trail = None;
 
   while into_option!(operator(it, RBracket)).is_none()  {
-    let stmt_or_expr = unwrap!(stmt(it), it.unexpected());
+    let stmt_or_expr = dbg!(unwrap!(stmt(it), it.unexpected()));
 
     let next = into_option!(peek(it, option_matcher!(
       Operator(op @ (Semi | RBracket)) => op
     )));
 
-    if let Some(op) = next {
-      match (op, stmt_or_expr) {
-        (RBracket, Stmt { data: StmtData::Expr(expr), .. }) => {
-          trail = Some(expr);
-        },
+    match (next, stmt_or_expr) {
+      (Some(RBracket), Stmt { data: StmtData::Expr(expr), .. }) => {
+        trail = Some(expr);
+      },
 
-        (op, stmt) => {
-          if op != RBracket { it.base.next(); }
-
-          stmts.push(stmt);
-        }
+      (op, stmt) => {
+        if matches!(op, Some(Semi)) { it.base.next(); }
+        stmts.push(stmt);
       }
     }
   }
