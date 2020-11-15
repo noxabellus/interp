@@ -1,6 +1,9 @@
 extern crate interp;
 
-use interp::frontend::{ token::*, lexer::*, parser::* };
+use interp::frontend::{
+  // token::*, lexer::*,
+  parser::*
+};
 
 fn main () {
   const TEST_FILE: &str = "./test_scripts/basic_pegs.z";
@@ -11,8 +14,8 @@ fn main () {
   };
 
 
-  let tokens: Vec<Token> = test_file.lex().collect();
-  println!("{:#?}", tokens);
+  // let tokens: Vec<Token> = test_file.lex().collect();
+  // println!("{:#?}", tokens);
 
 
   let mut parser = test_file.syn();
