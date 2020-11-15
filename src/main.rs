@@ -17,9 +17,9 @@ fn main () {
 
   let mut parser = test_file.syn();
 
-  match parser.stmt() {
+  match parser.items() {
     Value(v) => println!("{:?}", v),
-    Problem(e) => println!("{}", parser.display_error(TEST_FILE, e)),
+    Problem(e) => println!("{}", e.display(TEST_FILE)),
     Nothing => println!("Parsed nothing")
   }
 

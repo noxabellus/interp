@@ -51,7 +51,8 @@ pub enum Operator {
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Keyword {
-  Type, Let,
+  Global, Export, Import,
+  Type, Local,
   Map, Record,
   Function, Fn,
   Loop, If, Else,

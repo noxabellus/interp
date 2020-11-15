@@ -33,18 +33,14 @@ impl<'src> Parser<'src> {
     Self { base: src.lex().peekable() }
   }
 
-  /// Wrap an error in a formatting struct for display
-  pub fn display_error<'f> (&'f mut self, file_name: &'f str, err: ParseErr) -> ParseErrDisplay<'f> {
-    ParseErrDisplay(file_name, self.base.peek().map(|tok| tok.loc), err)
+  /// Attempt to parse a complete TyExpr ast node
+  pub fn ty_expr (&mut self) -> ParseResult<TyExpr<'src>> {
+    self::ty_expr(self)
   }
 
   /// Attempt to parse a complete Expr ast node
   pub fn expr (&mut self) -> ParseResult<Expr<'src>> {
     self::expr(self)
-  }
-  /// Attempt to parse a complete TyExpr ast node
-  pub fn ty_expr (&mut self) -> ParseResult<TyExpr<'src>> {
-    self::ty_expr(self)
   }
 
   /// Attempt to parse a complete Stmt ast node
@@ -52,32 +48,57 @@ impl<'src> Parser<'src> {
     self::stmt(self)
   }
 
+  /// Attempt to parse a complete Item ast node
+  pub fn item (&mut self) -> ParseResult<Item<'src>> {
+    self::item(self)
+  }
+
+  /// Attempt to parse all Item ast nodes available
+  pub fn items (&mut self) -> ParseResult<Vec<Item<'src>>> {
+    let mut out = vec![];
+
+    loop {
+      match self.item() {
+        Value(v) => out.push(v),
+        Problem(e) => return Problem(e),
+        Nothing => break
+      }
+    }
+
+    Value(out)
+  }
+
+
   /// Determine if there are any remaining Tokens left to parse
   pub fn is_finished (&mut self) -> bool {
     self.base.peek().is_none()
   }
 
-  fn problem_msg (&mut self, msg_if_not_at_end: &'static str) -> &'static str {
-    if self.base.peek().is_some() { msg_if_not_at_end }
-    else { "Unexpected end of input" }
+
+  fn problem (&mut self, msg_if_not_at_end: &'static str) -> ParseErr {
+    let msg = if self.base.peek().is_some() { msg_if_not_at_end }
+    else { "Unexpected end of input" };
+
+    ParseErr { data: ParseErrData::Syntactic(msg), loc: self.base.peek().map(|&Token { loc, .. }| loc) }
   }
 
-  fn unexpected (&mut self) -> &'static str {
-    self.problem_msg("Unexpected symbol")
+  fn unexpected (&mut self) -> ParseErr {
+    self.problem("Unexpected symbol")
   }
 }
 
 /// Display wrapper for formatting parser errors, produced by `Parser::display_error`
-pub struct ParseErrDisplay<'f>(&'f str, Option<Loc>, ParseErr);
+pub struct ParseErrDisplay<'f>(&'f str, ParseErr);
 
 impl<'f> fmt::Display for ParseErrDisplay<'f> {
   fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    match self {
-      Self(file_name, Some(Loc { line, column, .. }), err)
-      => write!(f, "Error at [{}:{}:{}]: {}", file_name, line + 1, column + 1, err),
 
-      Self(file_name, None, err)
-      => write!(f, "Error in [{} (Location not provided, possibly at EOF)]: {}", file_name, err)
+    match self {
+      Self(file_name, ParseErr { data, loc: Some(Loc { line, column, .. }) }) 
+      => write!(f, "Error at [{}:{}:{}]: {}", file_name, line + 1, column + 1, data),
+
+      Self(file_name, ParseErr { data, loc: None }) 
+      => write!(f, "Error in [{} (Location not provided, possibly at EOF)]: {}", file_name, data)
     }
   }
 }
@@ -93,21 +114,35 @@ impl<'src, T> Syntactic<'src> for T where T: Lexical<'src> {
   fn syn (self) -> Parser<'src> { Parser::new(self) }
 }
 
-/// Represents a syntactic error
+/// Variant specific data for a syntactic error
 #[derive(Debug)]
-pub enum ParseErr {
+pub enum ParseErrData {
   /// An error with the formation of Tokens
   Lexical(TokenErr),
   /// An error with the arrangement of Tokens
   Syntactic(&'static str)
 }
 
-impl fmt::Display for ParseErr {
+impl fmt::Display for ParseErrData {
   fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Self::Lexical(e) => write!(f, "{}", e),
       Self::Syntactic(s) => write!(f, "{}", s)
     }
+  }
+}
+
+/// Represents a syntactic error
+#[derive(Debug)]
+pub struct ParseErr {
+  data: ParseErrData,
+  loc: Option<Loc>
+}
+
+impl ParseErr {
+  /// Wrap an error in a formatting struct for display
+  pub fn display (self, file_name: &str) -> ParseErrDisplay {
+    ParseErrDisplay(file_name, self)
   }
 }
 
@@ -193,23 +228,46 @@ macro_rules! soft_unwrap {
   };
 }
 
-fn mk_problem<T> (err: ParseErr) -> ParseResult<T> {
-  #[cfg(debug_assertions)] {
-    println!("Making ParseResult::Problem({})", err)
+impl Into<ParseErrData> for &'static str {
+  fn into (self) -> ParseErrData {
+    ParseErrData::Syntactic(self)
   }
-  Problem(err)
+}
+
+impl Into<ParseErrData> for TokenErr {
+  fn into (self) -> ParseErrData {
+    ParseErrData::Lexical(self)
+  }
+}
+
+fn mk_problem<T> (data: impl Into<ParseErrData>, loc: Loc) -> ParseResult<T> {
+  let data = data.into();
+  #[cfg(debug_assertions)] {
+    println!("Making ParseResult::Problem({}) @ {}:{}", data, loc.line, loc.column)
+  }
+  Problem(ParseErr { data, loc: Some(loc) })
 }
 
 macro_rules! unwrap {
+  ($expr:expr, $problem:expr, $loc:expr) => {
+    match $expr {
+      Value(v) => v,
+      Problem(e) => return Problem(e),
+      Nothing => {
+        return mk_problem(ParseErr::Syntactic($problem), loc)
+      }
+    }
+  };
+
   ($expr:expr, $problem:expr) => {
     match $expr {
       Value(v) => v,
       Problem(e) => return Problem(e),
       Nothing => {
-        return mk_problem(ParseErr::Syntactic($problem))
+        return Problem($problem)
       }
     }
-  };
+  }
 }
 
 
@@ -217,9 +275,9 @@ macro_rules! unwrap {
 fn peek<'src, 'res, T: 'res> (it: &mut Parser<'src>, f: impl FnOnce (TokenData<'res>) -> Option<T>) -> ParseResult<T>
 where 'src: 'res
 {
-  if let Some(&Token { data, .. }) = it.base.peek() {
+  if let Some(&Token { data, loc }) = it.base.peek() {
     match data {
-      Error(e) => return Problem(ParseErr::Lexical(e)),
+      Error(e) => return mk_problem(e, loc),
       
       _ => if let Some(value) = f(data) {
         return Value(value)
@@ -241,7 +299,7 @@ where 'src: 'res
 {
   if let Some(&Token { data, loc }) = it.base.peek() {
     match data {
-      Error(e) => return Problem(ParseErr::Lexical(e)),
+      Error(e) => return mk_problem(e, loc),
       
       _ => if let Some(value) = f(data) {
         it.base.next();
@@ -256,7 +314,7 @@ where 'src: 'res
 fn consume_parsed<'int, 'src: 'int, T: str::FromStr> (it: &mut Parser<'src>, on_fail: &'static str, f: impl FnOnce (TokenData<'int>) -> Option<&'int str>) -> ParseResult<(T, Loc)> {
   if let Some(&Token { data, loc }) = it.base.peek() {
     match data {
-      Error(e) => return Problem(ParseErr::Lexical(e)),
+      Error(e) => return mk_problem(e, loc),
       
       _ => if let Some(int) = f(data) {
         return match int.parse() {
@@ -264,7 +322,7 @@ fn consume_parsed<'int, 'src: 'int, T: str::FromStr> (it: &mut Parser<'src>, on_
             it.base.next();
             Value((out, loc))
           },
-          Err(_) => Problem(ParseErr::Syntactic(on_fail))
+          Err(_) => mk_problem(ParseErrData::Syntactic(on_fail), loc)
         }
       }
     }
@@ -509,16 +567,16 @@ mod expr {
   fn array<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
     let (_, loc) = soft_unwrap!(operator(it, LBrace));
     let elements = unwrap!(list_body(it, expr, |it| operator(it, Comma)), it.unexpected());
-    unwrap!(operator(it, RBrace), "Expected `]` to close array literal or `,` to separate array elements");
+    unwrap!(operator(it, RBrace), it.problem("Expected `]` to close array literal or `,` to separate array elements"));
 
     Value(build_node(ExprData::Array(elements), loc))
   }
 
   fn record_expr_element<'src> (it: &mut Parser<'src>) -> ParseResult<RecordElement<'src>> {
     let (key, loc) = soft_unwrap!(identifier_raw(it));
-    unwrap!(operator(it, Assign), "Expected `=` to separate record field name from value");
+    unwrap!(operator(it, Assign), it.problem("Expected `=` to separate record field name from value"));
 
-    let val = unwrap!(expr(it), "Expected value expression to follow `=` in record field");
+    let val = unwrap!(expr(it), it.problem("Expected value expression to follow `=` in record field"));
 
     Value(build_node((key, val), loc))
   }
@@ -526,14 +584,14 @@ mod expr {
   fn record<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
     let (_, loc) = soft_unwrap!(keyword(it, Record));
     
-    unwrap!(operator(it, LBracket), "Expected `{` to begin record literal body");
-
-    let elements = unwrap!(list_body(it, record_expr_element, |it| operator(it, Comma)), "Expected record field initializer list");
+    unwrap!(operator(it, LBracket), it.problem("Expected `{` to begin record literal body"));
+    
+    let elements = unwrap!(list_body(it, record_expr_element, |it| operator(it, Comma)), it.problem("Expected record field initializer list"));
+    
+    let (_, err_loc) = unwrap!(operator(it, RBracket), it.problem("Expected `}` to close record literal or `,` to separate record fields"));
     if elements.is_empty() {
-      return Problem(ParseErr::Syntactic("Expected at least one field for record literal"));
+      return mk_problem("Expected at least one field for record literal", err_loc);
     }
-
-    unwrap!(operator(it, RBracket), "Expected `}` to close record literal or `,` to separate record fields");
     
     Value(build_node(ExprData::Record(elements), loc))
   }
@@ -541,19 +599,19 @@ mod expr {
   fn map_element<'src> (it: &mut Parser<'src>) -> ParseResult<MapElement<'src>> {
     let key = soft_unwrap!(expr(it));
     let loc = key.loc;
-    unwrap!(operator(it, Assign), "Expected `=` to separate map element key from value");
+    unwrap!(operator(it, Assign), it.problem("Expected `=` to separate map element key from value"));
 
-    let val = unwrap!(expr(it), "Expected value expression to follow `=` in map element");
+    let val = unwrap!(expr(it), it.problem("Expected value expression to follow `=` in map element"));
 
     Value(build_node((key, val), loc))
   }
 
   fn map<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
     let (_, loc) = soft_unwrap!(keyword(it, Map));
-    unwrap!(operator(it, LBracket), "Expected `{` to begin map literal body");
+    unwrap!(operator(it, LBracket), it.problem("Expected `{` to begin map literal body"));
 
-    let elements = unwrap!(list_body(it, map_element, |it| operator(it, Comma)), "Expected map element initializer list");
-    unwrap!(operator(it, RBracket), "Expected `}` to close map literal or `,` to separate map elements");
+    let elements = unwrap!(list_body(it, map_element, |it| operator(it, Comma)), it.problem("Expected map element initializer list"));
+    unwrap!(operator(it, RBracket), it.problem("Expected `}` to close map literal or `,` to separate map elements"));
 
     Value(build_node(ExprData::Map(elements), loc))
   }
@@ -562,10 +620,10 @@ mod expr {
     let (_, loc) = soft_unwrap!(keyword(it, Function));
 
     if check(it, matcher!(Identifier(_))) {
-      return Problem(ParseErr::Syntactic("Anonymous function expression should not have a name"))
+      return Problem(it.problem("Anonymous function expression should not have a name"))
     }
 
-    let content = unwrap!(function_content(it, loc), "Expected a function body for anonymous function expression");
+    let content = unwrap!(function_content(it, loc), it.problem("Expected a function body for anonymous function expression"));
 
     Value(build_node(ExprData::Function(content), loc))
   }
@@ -574,7 +632,7 @@ mod expr {
     let cond = soft_unwrap!(super::conditional(it));
 
     if !cond.is_expr() {
-      return Problem(ParseErr::Syntactic("Expected an expression"))
+      return mk_problem("Expected an expression", cond.loc)
     }
 
     Value(wrap_box_node(cond, ExprData::Conditional))
@@ -584,7 +642,7 @@ mod expr {
     let blk = soft_unwrap!(super::block(it));
 
     if !blk.is_expr() {
-      return Problem(ParseErr::Syntactic("Expected an expression"))
+      return mk_problem("Expected an expression", blk.loc)
     }
 
     Value(wrap_box_node(blk, ExprData::Block))
@@ -592,10 +650,10 @@ mod expr {
 
   fn sem_group<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
     let (_, loc) = soft_unwrap!(operator(it, LParen));
-    let mut inner = unwrap!(expr(it), "Expected an expression inside semantic grouping `()`");
+    let mut inner = unwrap!(expr(it), it.problem("Expected an expression inside semantic grouping `()`"));
     inner.loc = loc;
 
-    unwrap!(operator(it, RParen), "Expected `)` to close semantic grouping expression");
+    unwrap!(operator(it, RParen), it.problem("Expected `)` to close semantic grouping expression"));
 
     Value(inner)
   }
@@ -634,22 +692,22 @@ mod expr {
   fn call<'src> (it: &mut Parser<'src>, left: Expr<'src>, _: InfixInfo) -> ParseResult<Expr<'src>> {
     let loc = left.loc;
     let args = unwrap!(list_body(it, expr, |it| operator(it, Comma)), it.unexpected());
-    unwrap!(operator(it, RParen), "Expected `)` to close argument list or `,` to separate arguments");
+    unwrap!(operator(it, RParen), it.problem("Expected `)` to close argument list or `,` to separate arguments"));
 
     Value(build_node(ExprData::Call(box left, args), loc))
   }
 
   fn subscript<'src> (it: &mut Parser<'src>, left: Expr<'src>, _: InfixInfo) -> ParseResult<Expr<'src>> {
     let loc = left.loc;
-    let accessor = unwrap!(expr(it), "Expected a subscript accessor expression");
-    unwrap!(operator(it, RBrace), "Expected `]` to close subscript accessor expression");
+    let accessor = unwrap!(expr(it), it.problem("Expected a subscript accessor expression"));
+    unwrap!(operator(it, RBrace), it.problem("Expected `]` to close subscript accessor expression"));
 
     Value(build_node(ExprData::Subscript(box left, box accessor), loc))
   }
 
   fn member<'src> (it: &mut Parser<'src>, left: Expr<'src>, _: InfixInfo) -> ParseResult<Expr<'src>> {
     let loc = left.loc;
-    let (field, _) = unwrap!(identifier_raw(it), "Expected an identifier");
+    let (field, _) = unwrap!(identifier_raw(it), it.problem("Expected an identifier"));
 
     Value(build_node(ExprData::Member(box left, field), loc))
   }
@@ -658,7 +716,7 @@ mod expr {
     let mut left = soft_unwrap!(prefix(it));
 
     while let Some((info, expr_fn)) = expr_in_table(it, prec) {
-      left = unwrap!(expr_fn(it, left, info), "Expected right hand side for operator");
+      left = unwrap!(expr_fn(it, left, info), it.problem("Expected right hand side for operator"));
     }
 
     Value(left)
@@ -680,15 +738,15 @@ mod ty_expr {
   fn record<'src> (it: &mut Parser<'src>) -> ParseResult<TyExpr<'src>> {
     let (_, loc) = soft_unwrap!(keyword(it, Record));
 
-    unwrap!(operator(it, LBracket), "Expected `{` to begin record type body");
+    unwrap!(operator(it, LBracket), it.problem("Expected `{` to begin record type body"));
 
-    let fields = unwrap!(list_body(it, element_decl, |it| operator(it, Comma)), "Expected fields for record type");
+    let fields = unwrap!(list_body(it, element_decl, |it| operator(it, Comma)), it.problem("Expected fields for record type"));
     
+    let (_, err_loc) = unwrap!(operator(it, RBracket), it.problem("Expected `}` to end record field list or `,` to separate fields"));
     if fields.is_empty() {
-      return Problem(ParseErr::Syntactic("Expected at least one field for record type"))
+      return mk_problem("Expected at least one field for record type", err_loc)
     }
 
-    unwrap!(operator(it, RBracket), "Expected `}` to end record field list or `,` to separate fields");
 
     Value(build_node(TyExprData::Record(fields), loc))
   }
@@ -696,11 +754,11 @@ mod ty_expr {
   fn map<'src> (it: &mut Parser<'src>) -> ParseResult<TyExpr<'src>> {
     let (_, loc) = soft_unwrap!(operator(it, LBracket));
 
-    let key = unwrap!(ty_expr(it), "Expected map key type expression to follow `{`");
-    unwrap!(operator(it, Colon), "Expected `:` to separate key and value types in map type expression");
+    let key = unwrap!(ty_expr(it), it.problem("Expected map key type expression to follow `{`"));
+    unwrap!(operator(it, Colon), it.problem("Expected `:` to separate key and value types in map type expression"));
 
-    let val = unwrap!(ty_expr(it), "Expected map value type expression to follow `:`");
-    unwrap!(operator(it, RBracket), "Expected `}` to close map type expression");
+    let val = unwrap!(ty_expr(it), it.problem("Expected map value type expression to follow `:`"));
+    unwrap!(operator(it, RBracket), it.problem("Expected `}` to close map type expression"));
 
     Value(build_node(TyExprData::Map(box key, box val), loc))
   }
@@ -708,8 +766,8 @@ mod ty_expr {
   fn array<'src> (it: &mut Parser<'src>) -> ParseResult<TyExpr<'src>> {
     let (_, loc) = soft_unwrap!(operator(it, LBrace));
 
-    let elem = unwrap!(ty_expr(it), "Expected array element type expression to follow `[`");
-    unwrap!(operator(it, RBrace), "Expected `]` to close array type expression");
+    let elem = unwrap!(ty_expr(it), it.problem("Expected array element type expression to follow `[`"));
+    unwrap!(operator(it, RBrace), it.problem("Expected `]` to close array type expression"));
 
     Value(build_node(TyExprData::Array(box elem), loc))
   }
@@ -718,8 +776,8 @@ mod ty_expr {
     let (_, loc) = soft_unwrap!(keyword(it, Fn));
 
     let params = if into_option!(operator(it, LParen)).is_some() {
-      let elems = unwrap!(list_body(it, ty_expr, |it| operator(it, Comma)), "Expected parameter type list for function type expression");
-      unwrap!(operator(it, RParen), "Expected `)` to close parameter list for function type expression");
+      let elems = unwrap!(list_body(it, ty_expr, |it| operator(it, Comma)), it.problem("Expected parameter type list for function type expression"));
+      unwrap!(operator(it, RParen), it.problem("Expected `)` to close parameter list for function type expression"));
 
       elems
     } else {
@@ -727,7 +785,7 @@ mod ty_expr {
     };
 
     let ret_ty = if into_option!(operator(it, Arrow)).is_some() {
-      Some(box unwrap!(ty_expr(it), "Expected return type to follow `->` in function type expression"))
+      Some(box unwrap!(ty_expr(it), it.problem("Expected return type to follow `->` in function type expression")))
     } else {
       None
     };
@@ -782,38 +840,38 @@ mod stmt {
 
 
   fn r#let<'src> (it: &mut Parser<'src>, loc: Loc) -> ParseResult<Stmt<'src>> {
-    let (name, _) = unwrap!(identifier_raw(it), "Expected name for variable declaration");
+    let (name, _) = unwrap!(identifier_raw(it), it.problem("Expected name for variable declaration"));
 
     let ty = if into_option!(operator(it, Colon)).is_some() {
-      Some(unwrap!(ty_expr(it), "Expected explicit type expression to follow `:` in variable declaration"))
+      Some(unwrap!(ty_expr(it), it.problem("Expected explicit type expression to follow `:` in variable declaration")))
     } else {
       None
     };
 
     let init = if into_option!(operator(it, Assign)).is_some() {
-      Some(unwrap!(expr(it), "Expected initializer value to follow `=` in variable declaration"))
+      Some(unwrap!(expr(it), it.problem("Expected initializer value to follow `=` in variable declaration")))
     } else {
       None
     };
 
     if ty.is_none() && init.is_none() {
-      return Problem(ParseErr::Syntactic("Variable declaration requires an explicit type, an initial value, or both; found neither"))
+      return mk_problem("Variable declaration requires an explicit type, an initial value, or both; found neither", loc)
     }
 
-    Value(build_node(StmtData::Let(name, ty, init), loc))
+    Value(build_node(StmtData::Local(name, ty, init), loc))
   }
   
   fn r#type<'src> (it: &mut Parser<'src>, loc: Loc) -> ParseResult<Stmt<'src>> {
-    let (name, _) = unwrap!(identifier_raw(it), "Expected name for type alias");
-    unwrap!(operator(it, Colon), "Expected `:` to separate name from type expression in alias");
+    let (name, _) = unwrap!(identifier_raw(it), it.problem("Expected name for type alias"));
+    unwrap!(operator(it, Colon), it.problem("Expected `:` to separate name from type expression in alias"));
 
-    let ty = unwrap!(ty_expr(it), "Expected type expression to follow `:` in alias");
+    let ty = unwrap!(ty_expr(it), it.problem("Expected type expression to follow `:` in alias"));
 
     Value(build_node(StmtData::Type(name, ty), loc))
   }
   
   fn r#loop<'src> (it: &mut Parser<'src>, loc: Loc) -> ParseResult<Stmt<'src>> {
-    Value(build_node(StmtData::Loop(unwrap!(block(it), "Expected body block for loop")), loc))
+    Value(build_node(StmtData::Loop(unwrap!(block(it), it.problem("Expected body block for loop"))), loc))
   }
   
   fn r#return<'src> (it: &mut Parser<'src>, loc: Loc) -> ParseResult<Stmt<'src>> {
@@ -862,7 +920,7 @@ mod stmt {
     let loc = left.loc;
 
     if into_option!(operator(it, Assign)).is_some() {
-      let right = unwrap!(expr(it), "Expected right hand side for assignment statement");
+      let right = unwrap!(expr(it), it.problem("Expected right hand side for assignment statement"));
 
       Value(build_node(StmtData::Assign(left, right), loc))
     } else {
@@ -877,7 +935,7 @@ use stmt::stmt;
 
 fn element_decl<'src> (it: &mut Parser<'src>) -> ParseResult<ElementDecl<'src>> {
   let (name, loc) = soft_unwrap!(identifier_raw(it));
-  unwrap!(operator(it, Colon), "Expected `:` to separate declaration identifier from type");
+  unwrap!(operator(it, Colon), it.problem("Expected `:` to separate declaration identifier from type"));
   let ty = unwrap!(ty_expr(it), it.unexpected());
 
   Value(build_node((name, ty), loc))
@@ -886,8 +944,8 @@ fn element_decl<'src> (it: &mut Parser<'src>) -> ParseResult<ElementDecl<'src>> 
 
 fn function_content<'src> (it: &mut Parser<'src>, loc: Loc) -> ParseResult<Function<'src>> {
   let params = if into_option!(operator(it, LParen)).is_some() {
-    let elems = unwrap!(list_body(it, element_decl, |it| operator(it, Comma)), "Expected a list of function parameters");
-    unwrap!(operator(it, RParen), "Expected `)` to close function parameter list or `,` to separate parameters");
+    let elems = unwrap!(list_body(it, element_decl, |it| operator(it, Comma)), it.problem("Expected a list of function parameters"));
+    unwrap!(operator(it, RParen), it.problem("Expected `)` to close function parameter list or `,` to separate parameters"));
     elems
   } else {
     vec![]
@@ -895,7 +953,7 @@ fn function_content<'src> (it: &mut Parser<'src>, loc: Loc) -> ParseResult<Funct
 
   let ret = into_option!(operator(it, Arrow), box unwrap!(ty_expr(it), it.unexpected()));
 
-  let body = box unwrap!(block(it), "Expected body block for function");
+  let body = box unwrap!(block(it), it.problem("Expected body block for function"));
 
   Value(build_node((params, ret, body), loc))
 }
@@ -956,7 +1014,7 @@ fn conditional<'src> (it: &mut Parser<'src>) -> ParseResult<Conditional<'src>> {
         Value(branch) => branches.push(branch),
         Problem(e) => return Problem(e),
         Nothing => {
-          else_block = Some(unwrap!(block(it), "Expected `if expr { .. }` or `{ .. }` to follow `else`"));
+          else_block = Some(unwrap!(block(it), it.problem("Expected `if expr { .. }` or `{ .. }` to follow `else`")));
           break
         }
       },
@@ -967,3 +1025,77 @@ fn conditional<'src> (it: &mut Parser<'src>) -> ParseResult<Conditional<'src>> {
 
   Value(build_node((branches, else_block), loc))
 }
+
+
+
+
+mod item {
+  use super::*;
+
+  pub fn global<'src> (it: &mut Parser<'src>) -> ParseResult<Item<'src>> {
+    let (_, loc) = soft_unwrap!(keyword(it, Global));
+    let (name, _) = unwrap!(identifier_raw(it), it.problem("Expected name for global declaration"));
+
+    unwrap!(operator(it, Colon), it.problem("Expected `:` to separate name from type expression in global declaration"));
+
+    let ty = unwrap!(ty_expr(it), it.problem("Expected type expression to follow `:` in global declaration"));
+
+    let init = if into_option!(operator(it, Assign)).is_some() {
+      Some(unwrap!(expr(it), it.problem("Expected initializer expression to follow `=` in global declaration")))
+    } else {
+      None
+    };
+
+    Value(build_node(ItemData::Global(name, ty, init), loc))
+  }
+  
+  pub fn function<'src> (it: &mut Parser<'src>) -> ParseResult<Item<'src>> {
+    let (_, loc) = soft_unwrap!(keyword(it, Function));
+    let (name, _) = unwrap!(identifier_raw(it), it.problem("Expected name for function declaration"));
+    let content = unwrap!(function_content(it, loc), it.problem("Expected body for function declaration"));
+
+    Value(build_node(ItemData::Function(name, content), loc))
+  }
+  
+  pub fn r#type<'src> (it: &mut Parser<'src>) -> ParseResult<Item<'src>> {
+    let (_, loc) = soft_unwrap!(keyword(it, Type));
+    let (name, _) = unwrap!(identifier_raw(it), it.problem("Expected name for type alias"));
+
+    unwrap!(operator(it, Colon), it.problem("Expected `:` to separate name from type expression in alias"));
+
+    let ty = unwrap!(ty_expr(it), it.problem("Expected type expression to follow `:` in alias"));
+    
+    Value(build_node(ItemData::Type(name, ty), loc))
+  }
+  
+  pub fn import<'src> (it: &mut Parser<'src>) -> ParseResult<Item<'src>> {
+    let (_, loc) = soft_unwrap!(keyword(it, Import));
+    let (name, _) = unwrap!(identifier_raw(it), it.problem("Expected name of module to import"));
+
+    Value(build_node(ItemData::Import(name), loc))
+  }
+  
+  pub fn export<'src> (it: &mut Parser<'src>) -> ParseResult<Item<'src>> {
+    let (_, loc) = soft_unwrap!(keyword(it, Export));
+    let exp = unwrap!(item(it), it.problem("Expected item for export"));
+
+    match &exp.data {
+      | ItemData::Import { .. }
+      | ItemData::Export { .. }
+      => mk_problem("Export item cannot contain export or import", exp.loc),
+      _ => Value(build_node(ItemData::Export(box exp), loc))
+    }
+  }
+  
+  pub fn item<'src> (it: &mut Parser<'src>) -> ParseResult<Item<'src>> {
+    any_of!(it,
+      global,
+      function,
+      r#type,
+      import,
+      export
+    )
+  }
+}
+
+use item::item;

@@ -118,7 +118,7 @@ impl<'src> fmt::Debug for TyExprData<'src> {
 /// Variant-specific data for an ast statement node
 #[allow(missing_docs)]
 pub enum StmtData<'src> {
-  Let(&'src str, Option<TyExpr<'src>>, Option<Expr<'src>>),
+  Local(&'src str, Option<TyExpr<'src>>, Option<Expr<'src>>),
   Function(&'src str, Function<'src>),
   Type(&'src str, TyExpr<'src>),
 
@@ -139,7 +139,7 @@ impl<'src> fmt::Debug for StmtData<'src> {
   fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     use StmtData::*;
     match self {
-      Let(name, ty, init) => f.debug_tuple("Let").field(name).field(ty).field(init).finish(),
+      Local(name, ty, init) => f.debug_tuple("Local").field(name).field(ty).field(init).finish(),
       Function(name, data) => f.debug_tuple("Function").field(name).field(data).finish(),
       Type(name, ty) => f.debug_tuple("Type").field(name).field(ty).finish(),
       
@@ -154,6 +154,30 @@ impl<'src> fmt::Debug for StmtData<'src> {
       Return(r) => { write!(f,"Expr")?; r.fmt(f) },
       Break => write!(f, "Break"),
       Continue => write!(f, "Continue")
+    }
+  }
+}
+
+
+/// Variant-specific data for an ast item node
+#[allow(missing_docs)]
+pub enum ItemData<'src> {
+  Global(&'src str, TyExpr<'src>, Option<Expr<'src>>),
+  Function(&'src str, Function<'src>),
+  Type(&'src str, TyExpr<'src>),
+  Import(&'src str),
+  Export(Box<Item<'src>>)
+}
+
+impl<'src> fmt::Debug for ItemData<'src> {
+  fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    use ItemData::*;
+    match self {
+      Global(name, ty, init) => f.debug_tuple("Local").field(name).field(ty).field(init).finish(),
+      Function(name, data) => f.debug_tuple("Function").field(name).field(data).finish(),
+      Type(name, ty) => f.debug_tuple("Type").field(name).field(ty).finish(),
+      Import(name) => write!(f, "Import {}", name),
+      Export(item) => { write!(f, "Export ")?; item.fmt(f) }
     }
   }
 }
@@ -215,6 +239,9 @@ macro_rules! mk_node {
 }
 
 mk_node! {
+  /// A grammar node representing an item in a module
+  Item<'src> => ItemData<'src>,
+
   /// A grammar node representing an action
   Stmt<'src> => StmtData<'src>,
 
