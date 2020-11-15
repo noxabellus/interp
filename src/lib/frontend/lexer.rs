@@ -5,7 +5,7 @@ use std::str;
 use macros::{ matcher, expand_or_else, unchecked_destructure, discard };
 
 use super::{
-  common::{ Loc, Operator, Keyword },
+  common::{ Loc, Operator, Keyword, Constant },
   token::{ Token, TokenData, TokenErr },
 };
 
@@ -13,6 +13,7 @@ use std::string::String;
 use TokenData::*;
 use Operator::*;
 use Keyword::*;
+use Constant::*;
 
 
 /// Iterator providing lexical analysis of a source
@@ -167,6 +168,7 @@ impl<'src> Iterator for TokenIter<'src> {
                 "not" => Operator(LNot),
                 "and" => Operator(LAnd),
                 "or"  => Operator(LOr),
+                "as"  => Operator(Cast),
 
                 "global" => Keyword(Global),
                 "export" => Keyword(Export),
@@ -188,6 +190,11 @@ impl<'src> Iterator for TokenIter<'src> {
                 "return" => Keyword(Return),
                 "break" => Keyword(Break),
                 "continue" => Keyword(Continue),
+
+                "nil" => Constant(Nil),
+                "nan" => Constant(Nan),
+                "inf" => Constant(Inf),
+
                 _     => tok.data
               }
             }
@@ -219,6 +226,15 @@ impl<'src> Iterator for TokenIter<'src> {
 
 
         #op (b'-' b'>') => Arrow,
+
+        #op (b'+' b'=') => AddAssign,
+        #op (b'-' b'=') => SubAssign,
+        #op (b'*' b'=') => MulAssign,
+        #op (b'/' b'=') => DivAssign,
+        #op (b'%' b'=') => RemAssign,
+        #op (b'^' b'=') => PowAssign,
+
+        #op (b':' b':') => Path,
 
         #op (b'+') => Add,
         #op (b'-') => Sub,

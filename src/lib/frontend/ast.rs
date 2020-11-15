@@ -47,14 +47,17 @@ pub enum ExprData<'src> {
   Character(char),
   String(&'src str),
   Identifier(&'src str),
+  Path(&'src str, &'src str),
   Record(Vec<RecordElement<'src>>),
   Map(Vec<MapElement<'src>>),
   Array(Vec<Expr<'src>>),
   Unary(Operator, Box<Expr<'src>>),
   Binary(Operator, Box<Expr<'src>>, Box<Expr<'src>>),
+  Methodize(Box<Expr<'src>>, Box<Expr<'src>>),
   Call(Box<Expr<'src>>, Vec<Expr<'src>>),
   Member(Box<Expr<'src>>, &'src str),
   Subscript(Box<Expr<'src>>, Box<Expr<'src>>),
+  Cast(Box<Expr<'src>>, TyExpr<'src>),
   Function(Function<'src>),
   Conditional(Box<Conditional<'src>>),
   Block(Box<Block<'src>>),
@@ -71,14 +74,17 @@ impl<'src> fmt::Debug for ExprData<'src> {
       Character(ch) => write!(f, "'{}'", ch.escape_default()),
       String(string) => write!(f, "\"{}\"", string.escape_default()),
       Identifier(identifier) => write!(f, "{}", identifier),
+      Path(a,b) => f.debug_tuple("Path").field(a).field(b).finish(),
       Record(r) => { write!(f,"Record")?; r.fmt(f) },
       Map(m) => { write!(f,"Map")?; m.fmt(f) },
       Array(array) => { write!(f, "Array ")?; f.debug_list().entries(array).finish() },
       Unary(operator, operand) => f.debug_tuple("Unary").field(operator).field(operand).finish(),
       Binary(operator, left, right) => f.debug_tuple("Binary").field(operator).field(left).field(right).finish(),
+      Methodize(this, callee) => f.debug_tuple("Methodize").field(this).field(callee).finish(),
       Call(callee, arguments) => f.debug_tuple("Call").field(callee).field(arguments).finish(),
       Member(target, field) => f.debug_tuple("Member").field(target).field(&DisplayInDebug(field)).finish(),
       Subscript(target, accessor) => f.debug_tuple("Subscript").field(target).field(accessor).finish(),
+      Cast(val, ty) => f.debug_tuple("Cast").field(val).field(ty).finish(),
       Function(d) => { write!(f, "Function")?; d.fmt(f) },
       Conditional(c) => { write!(f, "Conditional")?; c.fmt(f) },
       Block(b) => { write!(f, "Block")?; b.fmt(f) },
@@ -92,6 +98,7 @@ impl<'src> fmt::Debug for ExprData<'src> {
 pub enum TyExprData<'src> {
   Nil,
   Identifier(&'src str),
+  Path(&'src str, &'src str),
   Record(Vec<ElementDecl<'src>>),
   Map(Box<TyExpr<'src>>, Box<TyExpr<'src>>),
   Array(Box<TyExpr<'src>>),
@@ -104,6 +111,7 @@ impl<'src> fmt::Debug for TyExprData<'src> {
     match self {
       Nil => write!(f, "nil"),
       Identifier(identifier) => write!(f, "{}", identifier),
+      Path(a, b) => f.debug_tuple("Path").field(a).field(b).finish(),
       Record(fields) => { write!(f,"Record")?; f.debug_list().entries(fields).finish() },
       Map(key, val) => f.debug_tuple("Map").field(key).field(val).finish(),
       Array(elem) => f.debug_tuple("Array").field(elem).finish(),
@@ -122,7 +130,7 @@ pub enum StmtData<'src> {
   Function(&'src str, Function<'src>),
   Type(&'src str, TyExpr<'src>),
 
-  Assign(Expr<'src>, Expr<'src>),
+  Assign(Operator, Expr<'src>, Expr<'src>),
 
   Expr(Expr<'src>),
 
@@ -143,7 +151,7 @@ impl<'src> fmt::Debug for StmtData<'src> {
       Function(name, data) => f.debug_tuple("Function").field(name).field(data).finish(),
       Type(name, ty) => f.debug_tuple("Type").field(name).field(ty).finish(),
       
-      Assign(target, value) => f.debug_tuple("Assign").field(target).field(value).finish(),
+      Assign(op, target, value) => f.debug_tuple("Assign").field(op).field(target).field(value).finish(),
       
       Expr(e) => { write!(f,"Expr")?; e.fmt(f) },
 
@@ -165,7 +173,7 @@ pub enum ItemData<'src> {
   Global(&'src str, TyExpr<'src>, Option<Expr<'src>>),
   Function(&'src str, Function<'src>),
   Type(&'src str, TyExpr<'src>),
-  Import(&'src str),
+  Import(&'src str, Option<&'src str>),
   Export(Box<Item<'src>>)
 }
 
@@ -176,7 +184,7 @@ impl<'src> fmt::Debug for ItemData<'src> {
       Global(name, ty, init) => f.debug_tuple("Local").field(name).field(ty).field(init).finish(),
       Function(name, data) => f.debug_tuple("Function").field(name).field(data).finish(),
       Type(name, ty) => f.debug_tuple("Type").field(name).field(ty).finish(),
-      Import(name) => write!(f, "Import {}", name),
+      Import(name, sub) => f.debug_tuple("Import").field(name).field(sub).finish(),
       Export(item) => { write!(f, "Export ")?; item.fmt(f) }
     }
   }

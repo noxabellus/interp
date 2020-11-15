@@ -10,7 +10,7 @@ use macros::{ matcher, option_matcher, c_enum };
 use crate::utils::{ UnescapedChar, /* UnescapedString */ };
 
 use super::{
-  common::{ Operator, Keyword, Loc },
+  common::{ Operator, Keyword, Constant, Loc },
   lexer::{ TokenIter, Lexical },
   token::{ Token, TokenData, TokenErr, },
   ast::{ Number, Function, * },
@@ -20,6 +20,8 @@ use super::{
 use TokenData::*;
 use Operator::*;
 use Keyword::*;
+use Constant::*;
+use Number::*;
 
 
 /// Wraps a TokenIter to allow syntax analysis
@@ -77,7 +79,9 @@ impl<'src> Parser<'src> {
 
   fn problem (&mut self, msg_if_not_at_end: &'static str) -> ParseErr {
     let msg = if self.base.peek().is_some() { msg_if_not_at_end }
-    else { "Unexpected end of input" };
+    else {
+      "Unexpected end of input"
+    };
 
     ParseErr { data: ParseErrData::Syntactic(msg), loc: self.base.peek().map(|&Token { loc, .. }| loc) }
   }
@@ -387,9 +391,6 @@ fn character_raw (it: &mut Parser) -> ParseResult<(char, Loc)> {
   ).map(|(uch, loc): (UnescapedChar, Loc)| (uch.inner(), loc))
 }
 
-fn nil_raw (it: &mut Parser) -> ParseResult<((), Loc)> {
-  consume(it, option_matcher!(Identifier("nil") => ()))
-}
 
 const fn from_raw<'src, U, T: Node>(
   raw: impl FnOnce (&mut Parser<'src>) -> ParseResult<(U, Loc)>,
@@ -409,6 +410,14 @@ fn operator (it: &mut Parser, op: Operator) -> ParseResult<(Operator, Loc)> {
 
 fn keyword (it: &mut Parser, kw: Keyword) -> ParseResult<(Keyword, Loc)> {
   consume(it, option_matcher!(Keyword(found) if found == kw => kw))
+}
+
+fn constant (it: &mut Parser, cons: Constant) -> ParseResult<(Constant, Loc)> {
+  consume(it, option_matcher!(Constant(found) if found == cons => cons))
+}
+
+fn any_constant (it: &mut Parser) -> ParseResult<(Constant, Loc)> {
+  consume(it, option_matcher!(Constant(cons) => cons))
 }
 
 
@@ -448,6 +457,7 @@ mod expr {
   c_enum! {
     Precedence: u8 {
       FullExpr = 0,
+      Cast = 130,
       Access = 120,
       Exponent = 110,
       Unary = 100,
@@ -492,12 +502,12 @@ mod expr {
       Div @ Mul => binary,
       Rem @ Mul => binary,
       Pow @ Exponent Right => binary,
-
+      
       Concat @ Bitshift => binary,
-
+      
       LShift @ Bitshift => binary,
       RShift @ Bitshift => binary,
-
+      
       Eq @ Comp => binary,
       Ne @ Comp => binary,
       Lt @ Comp => binary,
@@ -510,10 +520,12 @@ mod expr {
       BAnd @ BAnd => binary,
       BOr @ BOr => binary,
       BXOr @ BXor => binary,
-
+      
+      Colon @ Access => methodize,
       LParen @ Access => call,
       LBrace @ Access => subscript,
       Dot @ Access => member,
+      Cast @ Cast => cast,
     ]
   };
 
@@ -553,10 +565,26 @@ mod expr {
       .map(node_builder(ExprData::Character))
   }
 
+  fn identifier_or_path<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
+    let (name, loc) = soft_unwrap!(identifier_raw(it));
+
+    if into_option!(operator(it, Path)).is_some() {
+      let (sub, _) = unwrap!(identifier_raw(it), it.problem("Expected identifier to follow `::` in path"));
+
+      Value(build_node(ExprData::Path(name, sub), loc))
+    } else {
+      Value(build_node(ExprData::Identifier(name), loc))
+    }
+  }
+
   fn atom<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
     any_of!(it,
-      from_raw(nil_raw, |_| ExprData::Nil),
-      from_raw(identifier_raw, ExprData::Identifier),
+      from_raw(any_constant, |cons| match cons {
+        Nil => ExprData::Nil,
+        Nan => ExprData::Number(Real(f64::NAN)),
+        Inf => ExprData::Number(Real(f64::INFINITY)),
+      }),
+      identifier_or_path,
       number,
       boolean,
       string,
@@ -689,6 +717,13 @@ mod expr {
     Value(build_node(ExprData::Binary(op, box left, box right), loc))
   }
 
+  fn methodize<'src> (it: &mut Parser<'src>, left: Expr<'src>, (_, prec): InfixInfo) -> ParseResult<Expr<'src>> {
+    let loc = left.loc;
+    let right = unwrap!(pratt(it, prec), it.unexpected());
+
+    Value(build_node(ExprData::Methodize(box left, box right), loc))
+  }
+
   fn call<'src> (it: &mut Parser<'src>, left: Expr<'src>, _: InfixInfo) -> ParseResult<Expr<'src>> {
     let loc = left.loc;
     let args = unwrap!(list_body(it, expr, |it| operator(it, Comma)), it.unexpected());
@@ -710,6 +745,13 @@ mod expr {
     let (field, _) = unwrap!(identifier_raw(it), it.problem("Expected an identifier"));
 
     Value(build_node(ExprData::Member(box left, field), loc))
+  }
+
+  fn cast<'src> (it: &mut Parser<'src>, left: Expr<'src>, _: InfixInfo) -> ParseResult<Expr<'src>> {
+    let loc = left.loc;
+    let ty = unwrap!(ty_expr(it), it.problem("Expected type expression to follow `as` in cast"));
+
+    Value(build_node(ExprData::Cast(box left, ty), loc))
   }
 
   fn pratt<'src> (it: &mut Parser<'src>, prec: Precedence::Repr) -> ParseResult<Expr<'src>> {
@@ -794,9 +836,23 @@ mod ty_expr {
   }
 
 
+  fn identifier_or_path<'src> (it: &mut Parser<'src>) -> ParseResult<TyExpr<'src>> {
+    let (name, loc) = soft_unwrap!(identifier_raw(it));
+
+    if into_option!(operator(it, Path)).is_some() {
+      let (sub, _) = unwrap!(identifier_raw(it), it.problem("Expected identifier to follow `::` in path"));
+
+      Value(build_node(TyExprData::Path(name, sub), loc))
+    } else {
+      Value(build_node(TyExprData::Identifier(name), loc))
+    }
+  }
+
+
   pub fn ty_expr<'src> (it: &mut Parser<'src>) -> ParseResult<TyExpr<'src>> {
     any_of!(it,
-      from_raw(identifier_raw, TyExprData::Identifier),
+      from_raw(|it| constant(it, Nil), |_| TyExprData::Nil),
+      identifier_or_path,
       record,
       map,
       array,
@@ -813,19 +869,19 @@ mod stmt {
   use super::*;
 
   type StmtFn = for<'src> fn (it: &mut Parser<'src>, loc: Loc) -> ParseResult<Stmt<'src>>;
-  const STMT_TABLE: &[(&str, StmtFn)] = {
+  const STMT_TABLE: &[(Keyword, StmtFn)] = {
     &[
-      ("let", r#let),
-      ("type", r#type),
-      ("loop", r#loop),
-      ("return", r#return),
-      ("break", r#break),
-      ("continue", r#continue),
+      (Local, local),
+      (Type, r#type),
+      (Loop, r#loop),
+      (Return, r#return),
+      (Break, r#break),
+      (Continue, r#continue),
     ]
   };
 
   fn stmt_in_table (it: &mut Parser) -> Option<(StmtFn, Loc)> {
-    if let Some(&Token { data: Identifier(kw), loc }) = it.base.peek() {
+    if let Some(&Token { data: Keyword(kw), loc }) = it.base.peek() {
       for &(table_kw, func) in STMT_TABLE {
         if kw == table_kw {
           it.base.next();
@@ -838,8 +894,17 @@ mod stmt {
     None
   }
 
+  const ASSIGN_OPS: &[Operator] = &[
+    AddAssign,
+    SubAssign,
+    MulAssign,
+    DivAssign,
+    RemAssign,
+    PowAssign,
+  ];
 
-  fn r#let<'src> (it: &mut Parser<'src>, loc: Loc) -> ParseResult<Stmt<'src>> {
+
+  fn local<'src> (it: &mut Parser<'src>, loc: Loc) -> ParseResult<Stmt<'src>> {
     let (name, _) = unwrap!(identifier_raw(it), it.problem("Expected name for variable declaration"));
 
     let ty = if into_option!(operator(it, Colon)).is_some() {
@@ -919,10 +984,10 @@ mod stmt {
 
     let loc = left.loc;
 
-    if into_option!(operator(it, Assign)).is_some() {
+    if let Some((op,_)) = into_option!(any_operator_of(it, ASSIGN_OPS)) {
       let right = unwrap!(expr(it), it.problem("Expected right hand side for assignment statement"));
 
-      Value(build_node(StmtData::Assign(left, right), loc))
+      Value(build_node(StmtData::Assign(op, left, right), loc))
     } else {
       Value(wrap_node(left, StmtData::Expr))
     }
@@ -978,8 +1043,8 @@ fn block<'src> (it: &mut Parser<'src>) -> ParseResult<Block<'src>> {
           trail = Some(expr);
         },
 
-        (_, stmt) => {
-          it.base.next();
+        (op, stmt) => {
+          if op != RBracket { it.base.next(); }
 
           stmts.push(stmt);
         }
@@ -1072,7 +1137,14 @@ mod item {
     let (_, loc) = soft_unwrap!(keyword(it, Import));
     let (name, _) = unwrap!(identifier_raw(it), it.problem("Expected name of module to import"));
 
-    Value(build_node(ItemData::Import(name), loc))
+    let sub = if into_option!(operator(it, Path)).is_some() {
+      let (s, _) = unwrap!(identifier_raw(it), it.problem("Expected identifier to follow `::` in import path"));
+      Some(s)
+    } else {
+      None
+    };
+
+    Value(build_node(ItemData::Import(name, sub), loc))
   }
   
   pub fn export<'src> (it: &mut Parser<'src>) -> ParseResult<Item<'src>> {

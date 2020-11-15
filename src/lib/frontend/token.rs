@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use super::common::{ Operator, Keyword, Loc };
+use super::common::{ Operator, Keyword, Constant, Loc };
 
 
 /// Represents a lexical error
@@ -41,6 +41,7 @@ pub enum TokenData<'src> {
 
   Operator(Operator),
   Keyword(Keyword),
+  Constant(Constant),
 
   Error(TokenErr)
 }

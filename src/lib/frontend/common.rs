@@ -38,7 +38,10 @@ pub enum Operator {
 
 
   Assign,
+  AddAssign, SubAssign, MulAssign, DivAssign, RemAssign, PowAssign,
+  Cast,
   Arrow,
+  Path,
   Comma, Dot, Semi, Colon,
   LParen, RParen,
   LBrace, RBrace,
@@ -57,4 +60,14 @@ pub enum Keyword {
   Function, Fn,
   Loop, If, Else,
   Return, Break, Continue,
+}
+
+
+/// All constants in a valid grammar
+#[allow(missing_docs)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Constant {
+  Nil,
+  Nan,
+  Inf,
 }
