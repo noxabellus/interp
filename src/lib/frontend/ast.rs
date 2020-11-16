@@ -2,7 +2,6 @@
 
 use std::{ fmt, str };
 
-use crate::utils::DisplayInDebug;
 use super::common::{ Operator, Loc };
 
 
@@ -38,7 +37,9 @@ impl str::FromStr for Number {
   }
 }
 
+
 /// Variant-specific data for an ast expression node
+#[derive(Debug)]
 #[allow(missing_docs)]
 pub enum ExprData<'src> {
   Nil,
@@ -64,36 +65,8 @@ pub enum ExprData<'src> {
 }
 
 
-impl<'src> fmt::Debug for ExprData<'src> {
-  fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    use ExprData::*;
-    match self {
-      Nil => write!(f, "nil"),
-      Number(number) => write!(f, "{}", number),
-      Boolean(boolean) => write!(f, "{}", boolean),
-      Character(ch) => write!(f, "'{}'", ch.escape_default()),
-      String(string) => write!(f, "\"{}\"", string.escape_default()),
-      Identifier(identifier) => write!(f, "{}", identifier),
-      Path(a,b) => f.debug_tuple("Path").field(a).field(b).finish(),
-      Record(r) => { write!(f,"Record")?; r.fmt(f) },
-      Map(m) => { write!(f,"Map")?; m.fmt(f) },
-      Array(array) => { write!(f, "Array ")?; f.debug_list().entries(array).finish() },
-      Unary(operator, operand) => f.debug_tuple("Unary").field(operator).field(operand).finish(),
-      Binary(operator, left, right) => f.debug_tuple("Binary").field(operator).field(left).field(right).finish(),
-      Methodize(this, callee) => f.debug_tuple("Methodize").field(this).field(callee).finish(),
-      Call(callee, arguments) => f.debug_tuple("Call").field(callee).field(arguments).finish(),
-      Member(target, field) => f.debug_tuple("Member").field(target).field(&DisplayInDebug(field)).finish(),
-      Subscript(target, accessor) => f.debug_tuple("Subscript").field(target).field(accessor).finish(),
-      Cast(val, ty) => f.debug_tuple("Cast").field(val).field(ty).finish(),
-      Function(d) => { write!(f, "Function")?; d.fmt(f) },
-      Conditional(c) => { write!(f, "Conditional")?; c.fmt(f) },
-      Block(b) => { write!(f, "Block")?; b.fmt(f) },
-    }
-  }
-}
-
-
 /// Variant-specific data for an ast type expression node
+#[derive(Debug)]
 #[allow(missing_docs)]
 pub enum TyExprData<'src> {
   Nil,
@@ -105,25 +78,9 @@ pub enum TyExprData<'src> {
   Function(Vec<TyExpr<'src>>, Option<Box<TyExpr<'src>>>),
 }
 
-impl<'src> fmt::Debug for TyExprData<'src> {
-  fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    use TyExprData::*;
-    match self {
-      Nil => write!(f, "nil"),
-      Identifier(identifier) => write!(f, "{}", identifier),
-      Path(a, b) => f.debug_tuple("Path").field(a).field(b).finish(),
-      Record(fields) => { write!(f,"Record")?; f.debug_list().entries(fields).finish() },
-      Map(key, val) => f.debug_tuple("Map").field(key).field(val).finish(),
-      Array(elem) => f.debug_tuple("Array").field(elem).finish(),
-      Function(params, ret) => f.debug_tuple("Function").field(params).field(ret).finish(),
-    }
-  }
-}
-
-
-
 
 /// Variant-specific data for an ast statement node
+#[derive(Debug)]
 #[allow(missing_docs)]
 pub enum StmtData<'src> {
   Local(&'src str, Option<TyExpr<'src>>, Option<Expr<'src>>),
@@ -143,31 +100,9 @@ pub enum StmtData<'src> {
   Continue,
 }
 
-impl<'src> fmt::Debug for StmtData<'src> {
-  fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    use StmtData::*;
-    match self {
-      Local(name, ty, init) => f.debug_tuple("Local").field(name).field(ty).field(init).finish(),
-      Function(name, data) => f.debug_tuple("Function").field(name).field(data).finish(),
-      Type(name, ty) => f.debug_tuple("Type").field(name).field(ty).finish(),
-      
-      Assign(op, target, value) => f.debug_tuple("Assign").field(op).field(target).field(value).finish(),
-      
-      Expr(e) => { write!(f,"Expr")?; e.fmt(f) },
-
-      Block(b) => { write!(f,"Block")?; b.fmt(f) },
-      Conditional(c) => { write!(f,"Conditional")?; c.fmt(f) },
-      Loop(l) => { write!(f,"Loop")?; l.fmt(f) },
-
-      Return(r) => { write!(f,"Expr")?; r.fmt(f) },
-      Break => write!(f, "Break"),
-      Continue => write!(f, "Continue")
-    }
-  }
-}
-
 
 /// Variant-specific data for an ast item node
+#[derive(Debug)]
 #[allow(missing_docs)]
 pub enum ItemData<'src> {
   Global(&'src str, TyExpr<'src>, Option<Expr<'src>>),
@@ -177,18 +112,6 @@ pub enum ItemData<'src> {
   Export(Box<Item<'src>>)
 }
 
-impl<'src> fmt::Debug for ItemData<'src> {
-  fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    use ItemData::*;
-    match self {
-      Global(name, ty, init) => f.debug_tuple("Local").field(name).field(ty).field(init).finish(),
-      Function(name, data) => f.debug_tuple("Function").field(name).field(data).finish(),
-      Type(name, ty) => f.debug_tuple("Type").field(name).field(ty).finish(),
-      Import(name, sub) => f.debug_tuple("Import").field(name).field(sub).finish(),
-      Export(item) => { write!(f, "Export ")?; item.fmt(f) }
-    }
-  }
-}
 
 
 
