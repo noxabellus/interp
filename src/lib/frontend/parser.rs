@@ -894,6 +894,7 @@ mod stmt {
   }
 
   const ASSIGN_OPS: &[Operator] = &[
+    Assign,
     AddAssign,
     SubAssign,
     MulAssign,
@@ -1030,7 +1031,7 @@ fn block<'src> (it: &mut Parser<'src>) -> ParseResult<Block<'src>> {
   let mut trail = None;
 
   while into_option!(operator(it, RBracket)).is_none()  {
-    let stmt_or_expr = dbg!(unwrap!(stmt(it), it.unexpected()));
+    let stmt_or_expr = unwrap!(stmt(it), it.unexpected());
 
     let next = into_option!(peek(it, option_matcher!(
       Operator(op @ (Semi | RBracket)) => op
