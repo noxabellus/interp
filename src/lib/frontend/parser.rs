@@ -336,7 +336,7 @@ fn consume_parsed<'int, 'src: 'int, T: str::FromStr> (it: &mut Parser<'src>, on_
 }
 
 
-const fn node_builder<U, T: Node> (x: impl FnOnce (U) -> <T as Node>::Data) -> impl FnOnce ((U, Loc)) -> T {
+fn node_builder<U, T: Node> (x: impl FnOnce (U) -> <T as Node>::Data) -> impl FnOnce ((U, Loc)) -> T {
   move |(data, loc)| T::create(x(data), loc)
 }
 
@@ -351,7 +351,7 @@ fn wrap_node<T: Node, U: Node> (data: T, f: impl FnOnce(T) -> <U as Node>::Data)
 
 fn wrap_box_node<T: Node, U: Node> (data: T, f: impl FnOnce(Box<T>) -> <U as Node>::Data) -> U {
   let loc = data.get_loc();
-  U::create(f(box data), loc)
+  U::create(f(Box::new(data)), loc)
 }
 
 
@@ -380,7 +380,7 @@ fn number_raw (it: &mut Parser) -> ParseResult<(Number, Loc)> {
 fn boolean_raw (it: &mut Parser) -> ParseResult<(bool, Loc)> {
   consume_parsed(it, 
     "Invalid boolean literal",
-    option_matcher!(Identifier(boolean @ ("true" | "false")) => boolean)
+    option_matcher!(Identifier(boolean @ "true") | Identifier(boolean @ "false") => boolean)
   )
 }
 
@@ -392,7 +392,7 @@ fn character_raw (it: &mut Parser) -> ParseResult<(char, Loc)> {
 }
 
 
-const fn from_raw<'src, U, T: Node>(
+fn from_raw<'src, U, T: Node>(
   raw: impl FnOnce (&mut Parser<'src>) -> ParseResult<(U, Loc)>,
   x: impl FnOnce (U) -> <T as Node>::Data
 ) -> impl FnOnce (&mut Parser<'src>) -> ParseResult<T> {
@@ -531,7 +531,9 @@ mod expr {
 
   fn expr_in_table (it: &mut Parser, prec: Precedence::Repr) -> Option<InfixEntry> {
     if let Some(&Token { data: Operator(op), .. }) = it.base.peek() {
-      for &entry @ ((table_op, op_prec), _) in INFIX_TABLE {
+      for &entry in INFIX_TABLE {
+        let ((table_op, op_prec), _) = entry;
+        
         if op == table_op
         && op_prec > prec {
           it.base.next();
@@ -691,7 +693,7 @@ mod expr {
 
     let operand = unwrap!(pratt(it, Precedence::Unary), it.unexpected());
 
-    Value(build_node(ExprData::Unary(operator, box operand), loc))
+    Value(build_node(ExprData::Unary(operator, Box::new(operand)), loc))
   }
 
   fn prefix<'src> (it: &mut Parser<'src>) -> ParseResult<Expr<'src>> {
@@ -714,14 +716,14 @@ mod expr {
     let loc = left.loc;
     let right = unwrap!(pratt(it, prec), it.unexpected());
 
-    Value(build_node(ExprData::Binary(op, box left, box right), loc))
+    Value(build_node(ExprData::Binary(op, Box::new(left), Box::new(right)), loc))
   }
 
   fn methodize<'src> (it: &mut Parser<'src>, left: Expr<'src>, (_, prec): InfixInfo) -> ParseResult<Expr<'src>> {
     let loc = left.loc;
     let right = unwrap!(pratt(it, prec), it.unexpected());
 
-    Value(build_node(ExprData::Methodize(box left, box right), loc))
+    Value(build_node(ExprData::Methodize(Box::new(left), Box::new(right)), loc))
   }
 
   fn call<'src> (it: &mut Parser<'src>, left: Expr<'src>, _: InfixInfo) -> ParseResult<Expr<'src>> {
@@ -729,7 +731,7 @@ mod expr {
     let args = unwrap!(list_body(it, expr, |it| operator(it, Comma)), it.unexpected());
     unwrap!(operator(it, RParen), it.problem("Expected `)` to close argument list or `,` to separate arguments"));
 
-    Value(build_node(ExprData::Call(box left, args), loc))
+    Value(build_node(ExprData::Call(Box::new(left), args), loc))
   }
 
   fn subscript<'src> (it: &mut Parser<'src>, left: Expr<'src>, _: InfixInfo) -> ParseResult<Expr<'src>> {
@@ -737,21 +739,21 @@ mod expr {
     let accessor = unwrap!(expr(it), it.problem("Expected a subscript accessor expression"));
     unwrap!(operator(it, RBrace), it.problem("Expected `]` to close subscript accessor expression"));
 
-    Value(build_node(ExprData::Subscript(box left, box accessor), loc))
+    Value(build_node(ExprData::Subscript(Box::new(left), Box::new(accessor)), loc))
   }
 
   fn member<'src> (it: &mut Parser<'src>, left: Expr<'src>, _: InfixInfo) -> ParseResult<Expr<'src>> {
     let loc = left.loc;
     let (field, _) = unwrap!(identifier_raw(it), it.problem("Expected an identifier"));
 
-    Value(build_node(ExprData::Member(box left, field), loc))
+    Value(build_node(ExprData::Member(Box::new(left), field), loc))
   }
 
   fn cast<'src> (it: &mut Parser<'src>, left: Expr<'src>, _: InfixInfo) -> ParseResult<Expr<'src>> {
     let loc = left.loc;
     let ty = unwrap!(ty_expr(it), it.problem("Expected type expression to follow `as` in cast"));
 
-    Value(build_node(ExprData::Cast(box left, ty), loc))
+    Value(build_node(ExprData::Cast(Box::new(left), ty), loc))
   }
 
   fn pratt<'src> (it: &mut Parser<'src>, prec: Precedence::Repr) -> ParseResult<Expr<'src>> {
@@ -801,7 +803,7 @@ mod ty_expr {
     let val = unwrap!(ty_expr(it), it.problem("Expected map value type expression to follow `:`"));
     unwrap!(operator(it, RBracket), it.problem("Expected `}` to close map type expression"));
 
-    Value(build_node(TyExprData::Map(box key, box val), loc))
+    Value(build_node(TyExprData::Map(Box::new(key), Box::new(val)), loc))
   }
 
   fn array<'src> (it: &mut Parser<'src>) -> ParseResult<TyExpr<'src>> {
@@ -810,7 +812,7 @@ mod ty_expr {
     let elem = unwrap!(ty_expr(it), it.problem("Expected array element type expression to follow `[`"));
     unwrap!(operator(it, RBrace), it.problem("Expected `]` to close array type expression"));
 
-    Value(build_node(TyExprData::Array(box elem), loc))
+    Value(build_node(TyExprData::Array(Box::new(elem)), loc))
   }
 
   fn function<'src> (it: &mut Parser<'src>) -> ParseResult<TyExpr<'src>> {
@@ -826,7 +828,7 @@ mod ty_expr {
     };
 
     let ret_ty = if into_option!(operator(it, Arrow)).is_some() {
-      Some(box unwrap!(ty_expr(it), it.problem("Expected return type to follow `->` in function type expression")))
+      Some(Box::new(unwrap!(ty_expr(it), it.problem("Expected return type to follow `->` in function type expression"))))
     } else {
       None
     };
@@ -1016,9 +1018,9 @@ fn function_content<'src> (it: &mut Parser<'src>, loc: Loc) -> ParseResult<Funct
     vec![]
   };
 
-  let ret = into_option!(operator(it, Arrow), box unwrap!(ty_expr(it), it.unexpected()));
+  let ret = into_option!(operator(it, Arrow), Box::new(unwrap!(ty_expr(it), it.unexpected())));
 
-  let body = box unwrap!(block(it), it.problem("Expected body block for function"));
+  let body = Box::new(unwrap!(block(it), it.problem("Expected body block for function")));
 
   Value(build_node((params, ret, body), loc))
 }
@@ -1034,7 +1036,7 @@ fn block<'src> (it: &mut Parser<'src>) -> ParseResult<Block<'src>> {
     let stmt_or_expr = unwrap!(stmt(it), it.unexpected());
 
     let next = into_option!(peek(it, option_matcher!(
-      Operator(op @ (Semi | RBracket)) => op
+      Operator(op @ Semi) | Operator(op @ RBracket) => op
     )));
 
     match (next, stmt_or_expr) {
@@ -1152,7 +1154,7 @@ mod item {
       | ItemData::Import { .. }
       | ItemData::Export { .. }
       => mk_problem("Export item cannot contain export or import", exp.loc),
-      _ => Value(build_node(ItemData::Export(box exp), loc))
+      _ => Value(build_node(ItemData::Export(Box::new(exp)), loc))
     }
   }
   

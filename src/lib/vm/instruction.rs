@@ -6,7 +6,7 @@ use std::{
   slice
 };
 
-use crate::{
+use super::{
   global::GlobalID,
   module::ModuleID,
   typeinfo::{ TypeID, TypeKind }
@@ -100,9 +100,9 @@ pub enum Instruction {
   LoadUpvalue, // (UpvalueID),
   StoreUpvalue, // (UpvalueID),
 
-  LoadGlobal, // (GlobalID),
+  LoadGlobal, // (ModuleID, GlobalID),
   LoadGlobalDeferred, // (ModuleID)
-  StoreGlobal, // (GlobalID),
+  StoreGlobal, // (ModuleID, GlobalID),
   StoreGlobalDeferred, // (ModuleID)
 
 

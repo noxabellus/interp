@@ -2,7 +2,7 @@
 
 use std::str;
 
-use macros::{ matcher, expand_or_else, unchecked_destructure, discard };
+use macros::{ matcher, unchecked_destructure };
 
 use super::{
   common::{ Loc, Operator, Keyword, Constant },
@@ -105,26 +105,6 @@ impl<'src> Iterator for TokenIter<'src> {
 
     self.advance();
 
-    macro_rules! lexer_cases {
-      (match ($expr:expr) {
-        $($(#$op_marker:ident)? ($($pat:tt)*) => $body:tt),*
-      }) => {
-        #[allow(unused_parens)]
-        match $expr {
-          $(lexer_cases!(:PAT: $(#$op_marker)? $($pat)*) => lexer_cases!(:BODY: [$(#$op_marker)? $($pat)*] $body)),*
-        }
-      };
-      
-      (:PAT: #op $first_ch:literal $($second_ch:literal)?) => { (($first_ch, expand_or_else!({ $(Some($second_ch))? }, { _ }))) };
-      (:PAT: $($pat:pat)|+) => { ($($pat)|+) };
-      
-      (:BODY: [#op $first_ch:literal $($second_ch:literal)?] $op:ident) => { {
-        $( discard!($second_ch); self.advance(); )?
-        self.end_tok(Operator($op))
-      } };
-      (:BODY: [$($tt:tt)+] $body:tt) => { $body };
-    }
-
     macro_rules! string_body {
       ($kind:ident, $delim:literal) => {
         {
@@ -154,129 +134,144 @@ impl<'src> Iterator for TokenIter<'src> {
       }
     }
 
-    Some(lexer_cases! {
-      match ((first_ch, second_ch)) {
-        ((b'_' | b'a'..=b'z' | b'A'..=b'Z', _)) => {
-          self.scan(matcher!(b'_' | b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9'));
-          
-          let mut tok = self.end_tok_with(Identifier);
 
-          unsafe { unchecked_destructure! {
-            tok,
-            Token { data: Identifier(ident), .. } => {
-              tok.data = match ident {
-                "not" => Operator(LNot),
-                "and" => Operator(LAnd),
-                "or"  => Operator(LOr),
-                "as"  => Operator(Cast),
+    fn convert_op (pair: (u8, Option<u8>)) -> Option<(Operator, bool)> {
+      Some(match pair {
+        (b'-', Some(b'>')) => (Arrow, true),
 
-                "global" => Keyword(Global),
-                "export" => Keyword(Export),
-                "import" => Keyword(Import),
+        (b'+', Some(b'=')) => (AddAssign, true),
+        (b'-', Some(b'=')) => (SubAssign, true),
+        (b'*', Some(b'=')) => (MulAssign, true),
+        (b'/', Some(b'=')) => (DivAssign, true),
+        (b'%', Some(b'=')) => (RemAssign, true),
+        (b'^', Some(b'=')) => (PowAssign, true),
 
-                "type" => Keyword(Type),
-                "local" => Keyword(Local),
-                
-                "map" => Keyword(Map),
-                "record" => Keyword(Record),
+        (b':', Some(b':')) => (Path, true),
 
-                "function" => Keyword(Function),
-                "fn" => Keyword(Fn),
+        (b'+', _) => (Add, false),
+        (b'-', _) => (Sub, false),
+        (b'*', _) => (Mul, false),
+        (b'/', _) => (Div, false),
+        (b'%', _) => (Rem, false),
+        (b'^', _) => (Pow, false),
 
-                "loop" => Keyword(Loop),
-                "if" => Keyword(If),
-                "else" => Keyword(Else),
+        (b'.', Some(b'.')) => (Concat, true),
 
-                "return" => Keyword(Return),
-                "break" => Keyword(Break),
-                "continue" => Keyword(Continue),
+        (b'<', Some(b'<')) => (LShift, true),
+        (b'>', Some(b'>')) => (RShift, true),
 
-                "nil" => Constant(Nil),
-                "nan" => Constant(Nan),
-                "inf" => Constant(Inf),
+        (b'=', Some(b'=')) => (Eq, true),
+        (b'!', Some(b'=')) => (Ne, true),
+        (b'<', Some(b'=')) => (Le, true),
+        (b'>', Some(b'=')) => (Ge, true),
+        (b'<', _) => (Lt, false),
+        (b'>', _) => (Gt, false),
 
-                _     => tok.data
-              }
+        (b'!', _) => (BNot, false),
+
+        (b'&', _) => (BAnd, false),
+        (b'|', _) => (BOr, false),
+        (b'~', _) => (BXOr, false),
+
+        (b'=', _) => (Assign, false),
+
+        (b',', _) => (Comma, false),
+        (b'.', _) => (Dot, false),
+        (b';', _) => (Semi, false),
+        (b':', _) => (Colon, false),
+
+        (b'(', _) => (LParen, false),
+        (b')', _) => (RParen, false),
+        (b'[', _) => (LBrace, false),
+        (b']', _) => (RBrace, false),
+
+        (b'{', _) => (LBracket, false),
+        (b'}', _) => (RBracket, false),
+
+        _ => return None
+      })
+    }
+
+    Some(match (first_ch, second_ch) {
+      | (b'_', _)
+      | (b'a'..=b'z', _)
+      | (b'A'..=b'Z', _)
+      => {
+        self.scan(matcher!(b'_' | b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9'));
+        
+        let mut tok = self.end_tok_with(Identifier);
+
+        unsafe { unchecked_destructure! {
+          tok,
+          Token { data: Identifier(ident), .. } => {
+            tok.data = match ident {
+              "not" => Operator(LNot),
+              "and" => Operator(LAnd),
+              "or"  => Operator(LOr),
+              "as"  => Operator(Cast),
+
+              "global" => Keyword(Global),
+              "export" => Keyword(Export),
+              "import" => Keyword(Import),
+
+              "type" => Keyword(Type),
+              "local" => Keyword(Local),
+              
+              "map" => Keyword(Map),
+              "record" => Keyword(Record),
+
+              "function" => Keyword(Function),
+              "fn" => Keyword(Fn),
+
+              "loop" => Keyword(Loop),
+              "if" => Keyword(If),
+              "else" => Keyword(Else),
+
+              "return" => Keyword(Return),
+              "break" => Keyword(Break),
+              "continue" => Keyword(Continue),
+
+              "nil" => Constant(Nil),
+              "nan" => Constant(Nan),
+              "inf" => Constant(Inf),
+
+              _     => tok.data
             }
-          } }
+          }
+        } }
 
-          tok
-        },
-
-
-        ((b'.', Some(b'0'..=b'9')) | (b'0'..=b'9', _)) => {
-          let mut dec = first_ch == b'.';
-
-          self.scan(|ch| {
-            if ch == b'.' && !dec {
-              dec = true;
-              true
-            } else {
-              ch.is_ascii_digit()
-            }
-          });
-
-          self.end_tok_with(Number)
-        },
+        tok
+      },
 
 
-        ((b'"', _)) => { string_body!(String, b'"') },
+      | (b'.', Some(b'0'..=b'9'))
+      | (b'0'..=b'9', _) => {
+        let mut dec = first_ch == b'.';
 
-        ((b'\'', _)) => { string_body!(Character, b'\'')},
+        self.scan(|ch| {
+          if ch == b'.' && !dec {
+            dec = true;
+            true
+          } else {
+            ch.is_ascii_digit()
+          }
+        });
+
+        self.end_tok_with(Number)
+      },
 
 
-        #op (b'-' b'>') => Arrow,
+      (b'"', _) => { string_body!(String, b'"') },
 
-        #op (b'+' b'=') => AddAssign,
-        #op (b'-' b'=') => SubAssign,
-        #op (b'*' b'=') => MulAssign,
-        #op (b'/' b'=') => DivAssign,
-        #op (b'%' b'=') => RemAssign,
-        #op (b'^' b'=') => PowAssign,
+      (b'\'', _) => { string_body!(Character, b'\'') },
 
-        #op (b':' b':') => Path,
-
-        #op (b'+') => Add,
-        #op (b'-') => Sub,
-        #op (b'*') => Mul,
-        #op (b'/') => Div,
-        #op (b'%') => Rem,
-        #op (b'^') => Pow,
-
-        #op (b'.' b'.') => Concat,
-
-        #op (b'<' b'<') => LShift,
-        #op (b'>' b'>') => RShift,
-
-        #op (b'=' b'=') => Eq,
-        #op (b'!' b'=') => Ne,
-        #op (b'<' b'=') => Le,
-        #op (b'>' b'=') => Ge,
-        #op (b'<') => Lt,
-        #op (b'>') => Gt,
-
-        #op (b'!') => BNot,
-
-        #op (b'&') => BAnd,
-        #op (b'|') => BOr,
-        #op (b'~') => BXOr,
-
-        #op (b'=') => Assign,
-
-        #op (b',') => Comma,
-        #op (b'.') => Dot,
-        #op (b';') => Semi,
-        #op (b':') => Colon,
-
-        #op (b'(') => LParen,
-        #op (b')') => RParen,
-        #op (b'[') => LBrace,
-        #op (b']') => RBrace,
-
-        #op (b'{') => LBracket,
-        #op (b'}') => RBracket,
-
-        (_) => { self.end_tok(Error(TokenErr::UnrecognizedByte(first_ch))) }
+      pair => {
+        if let Some((op, adv)) = convert_op(pair) {
+          if adv { self.advance() }
+          self.end_tok(TokenData::Operator(op))
+        } else {
+          self.end_tok(Error(TokenErr::UnrecognizedByte(first_ch)))
+        }
       }
     })
   }

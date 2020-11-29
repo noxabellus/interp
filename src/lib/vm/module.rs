@@ -1,13 +1,17 @@
 //! Modules and their storage
 
 use std::{
-  collections::HashMap,
+  collections::hash_map::{
+    HashMap,
+    // RawEntryMut
+  }
 };
 
-use crate::{
-  utils::InsertUnique,
-  global::GlobalID,
-  typeinfo::TypeID,
+// use crate::utils::InsertUnique;
+
+use super::{
+  Value,
+  TypeID, GlobalID,
 };
 
 
@@ -21,12 +25,19 @@ impl ModuleID {
   pub const MAX_MODULES: usize = u16::MAX as _;
 }
 
+/// An ID bound to a name in a Module
+#[allow(missing_docs)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ModuleBinding {
+  Global(GlobalID),
+  Type(TypeID),
+}
 
 /// Binds types and globals declared by a script
 #[derive(Default)]
 pub struct Module {
-  types: HashMap<String, TypeID>,
-  globals: HashMap<String, GlobalID>,
+  globals: Vec<Value>,
+  bindings: HashMap<String, ModuleBinding>
 }
 
 
@@ -40,49 +51,69 @@ impl Module {
 
   /// Bind a new type to a name in a Module
   ///
-  /// Returns false if there was already a type with the given name
-  pub fn register_type (&mut self, name: &str, id: TypeID) -> bool {
-    self.types.insert_unique(name, id)
+  /// Returns false if there was already a binding with the given name
+  pub fn export_type (&mut self, name: &str, id: TypeID) -> bool {
+    if !self.bindings.contains_key(name) {
+      self.bindings.insert(name.to_owned(), ModuleBinding::Type(id));
+      true
+    } else {
+      false
+    }
   }
+
 
   /// Bind a new global to a name in a Module
   ///
-  /// Returns false if there was already a global with the given name
-  pub fn register_global (&mut self, name: &str, id: GlobalID) -> bool {
-    self.globals.insert_unique(name, id)
+  /// Returns false if:
+  /// + There was already a binding with the given name
+  pub fn export_global (&mut self, name: &str, id: GlobalID) -> bool {
+    if !self.bindings.contains_key(name) {
+      self.bindings.insert(name.to_owned(), ModuleBinding::Global(id));
+      true
+    } else {
+      false
+    }
+  }
+
+  /// Create a new global in a Module
+  pub fn create_global (&mut self) -> Option<(GlobalID, &mut Value)> {
+    let idx = self.globals.len();
+    if idx >= GlobalID::MAX_GLOBALS { return None }
+    
+    let id = GlobalID(idx as _);
+    self.globals.push(Value::from_nil());
+
+    Some((id, unsafe { self.globals.get_unchecked_mut(idx) }))
   }
 
 
-  /// Determine how many types are registered in a Module
-  pub fn num_types (&self) -> usize {
-    self.types.len()
+  /// Lookup a binding by name
+  pub fn find_binding (&self, name: &str) -> Option<ModuleBinding> {
+    self.bindings.get(name).copied()
   }
 
-  /// Determine how many globals are registered in a Module
-  pub fn num_globals (&self) -> usize {
-    self.globals.len()
+  /// Get a global by id
+  pub fn get_global (&self, id: GlobalID) -> Option<&Value> {
+    self.globals.get(id.0 as usize)
   }
 
-
-  /// Determine if a Module has registered any types
-  pub fn has_types (&self) -> bool {
-    !self.types.is_empty()
+  /// Get a global by id
+  /// # Safety
+  /// This does not bounds check the id
+  pub unsafe fn get_global_unchecked (&self, id: GlobalID) -> &Value {
+    self.globals.get_unchecked(id.0 as usize)
   }
 
-  /// Determine if a Module has registered any globals
-  pub fn has_globals (&self) -> bool {
-    !self.globals.is_empty()
+  /// Get a global by id
+  pub fn get_global_mut (&mut self, id: GlobalID) -> Option<&mut Value> {
+    self.globals.get_mut(id.0 as usize)
   }
 
-
-  /// Find a type in a Module by name
-  pub fn find_type (&self, name: &str) -> Option<TypeID> {
-    self.types.get(name).copied()
-  }
-
-  /// Find a global in a Module by name
-  pub fn find_global (&self, name: &str) -> Option<GlobalID> {
-    self.globals.get(name).copied()
+  /// Get a global by id
+  /// # Safety
+  /// This does not bounds check the id
+  pub unsafe fn get_global_unchecked_mut (&mut self, id: GlobalID) -> &mut Value {
+    self.globals.get_unchecked_mut(id.0 as usize)
   }
 }
 
@@ -104,7 +135,7 @@ impl ModuleRegistry {
   ///
   /// Returns None if:
   /// + There are `ModuleID::MAX_MODULES`
-  /// + A module with the name `name` already exists
+  /// + A module is already bound to `name`
   pub fn create_module (&mut self, name: &str) -> Option<(ModuleID, &mut Module)> {
     if self.module_names.contains_key(name) {
       None

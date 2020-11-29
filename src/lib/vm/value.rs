@@ -6,7 +6,7 @@ use std::{
   fmt::{ self, Display, Debug, Formatter }
 };
 
-use crate::{
+use super::{
   object,
   typeinfo::TypeID,
 };
@@ -41,6 +41,8 @@ pub enum TypeDiscriminator {
   Userdata = tdb!(5),
   Foreign = tdb!(6),
 }
+
+
 
 impl Display for TypeDiscriminator {
   fn fmt (&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -113,7 +115,7 @@ mod internal {
     /// Note that the use of this function may be slower
     /// than the various `is_`*`ty`* functions unless matching on many variants,
     /// because it requires an internal branch
-    pub const fn get_type_discriminator (&self) -> TypeDiscriminator {
+    pub fn get_type_discriminator (&self) -> TypeDiscriminator {
       if (self.get_nan_segment() == Self::NAN_MASK) & (self.get_type_segment() != 0) {
         unsafe { transmute(self.get_signed_type_segment()) }
       } else {
@@ -184,7 +186,7 @@ mod internal {
     /// Extract the internal `Character` in a Value
     /// # Safety
     /// Does not check that the Value actually contains the designated type
-    pub unsafe fn as_character_unchecked (&self) -> char { char::from_u32_unchecked(self.get_data_segment() as u32) }
+    pub unsafe fn as_character_unchecked (&self) -> char { std::char::from_u32_unchecked(self.get_data_segment() as u32) }
 
     /// Extract the internal `Boolean` in a Value
     /// # Safety

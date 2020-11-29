@@ -18,6 +18,12 @@ impl fmt::Debug for Loc {
   }
 }
 
+impl fmt::Display for Loc {
+  fn fmt (&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{}:{}", self.line + 1, self.column + 1)
+  }
+}
+
 
 /// All operators in a valid grammar
 #[allow(missing_docs)]

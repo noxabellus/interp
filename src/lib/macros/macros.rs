@@ -64,7 +64,7 @@ macro_rules! unchecked_destructure {
 #[macro_export]
 macro_rules! static_assert {
   ($cond:expr) => {
-    const _: () = assert!($cond);
+    const _: [();0] = [(); 0 - (!($cond) as usize)];
   }
 }
 

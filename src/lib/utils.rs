@@ -4,12 +4,12 @@
 
 use std::{
   str, fmt,
-  borrow::{ Borrow, ToOwned },
-  hash::{ Hash, BuildHasher },
-  collections::hash_map::{
-    HashMap,
-    RawEntryMut
-  }
+  // borrow::{ Borrow, ToOwned },
+  hash::Hash,// BuildHasher },
+  // collections::hash_map::{
+    // HashMap,
+    // RawEntryMut
+  // }
 };
 
 
@@ -91,7 +91,10 @@ pub fn unescape_char<I: Iterator<Item = char>> (chars: &mut I) -> Result<char, U
 
           loop {
             match chars.next() {
-              Some(ch @ ('a'..='f' | 'A'..='F' | '0'..='9')) => {
+              | Some(ch @ 'a'..='f')
+              | Some(ch @ 'A'..='F')
+              | Some(ch @ '0'..='9')
+              => {
                 if len < 6 {
                   temp_buf[len] = ch as u8;
                 } else {
@@ -111,7 +114,7 @@ pub fn unescape_char<I: Iterator<Item = char>> (chars: &mut I) -> Result<char, U
 
           u32::from_str_radix(unsafe { str::from_utf8_unchecked(&temp_buf[..len]) }, 16)
             .ok()
-            .and_then(char::from_u32)
+            .and_then(std::char::from_u32)
             .ok_or(UnescapeErr::InvalidSequence)
         } else {
           Err(UnescapeErr::InvalidSequence)
@@ -130,7 +133,10 @@ pub fn unescape_char<I: Iterator<Item = char>> (chars: &mut I) -> Result<char, U
           't' => '\x09',	// Horizontal Tab
           'v' => '\x0B',	// Vertical Tab
 
-          x @ ('\\' | '\'' | '"') => x,  // literal values
+          | x @ '\\'
+          | x @ '\''
+          | x @ '"'
+          => x,  // literal values
 
           _ => return Err(UnescapeErr::InvalidSequence)
         })
@@ -218,40 +224,177 @@ impl UnescapedString {
 
 
 
-/// Allows inserting values into HashMaps if the key provided is not already present
-pub trait InsertUnique
-{
-  /// The type of Key used by this HashMap
-  type Key;
+// /// Allows inserting values into HashMaps if the key provided is not already present
+// pub trait InsertUnique
+// {
+//   /// The type of Key used by this HashMap
+//   type Key;
 
-  /// The type of Value used by this HashMap
-  type Value;
+//   /// The type of Value used by this HashMap
+//   type Value;
 
-  /// Insert a value into this HashMap if the provided key is not already present;
-  /// Returns false if the key was already bound to a value
-  fn insert_unique<Q> (&mut self, key: &Q, value: Self::Value) -> bool
-  where Self::Key: Borrow<Q>,
-        Q: Eq + Hash + ToOwned<Owned = Self::Key> + ?Sized;
+//   /// Insert a value into this HashMap if the provided key is not already present;
+//   /// Returns false if the key was already bound to a value
+//   fn insert_unique<Q> (&mut self, key: &Q, value: Self::Value) -> bool
+//   where Self::Key: Borrow<Q>,
+//         Q: Eq + Hash + ToOwned<Owned = Self::Key> + ?Sized;
+
+//   /// Insert the return value of a closure into this HashMap if the provided key is not already present;
+//   /// Returns false and does not call the closure if the key was already bound to a value
+//   fn insert_unique_with<Q, F> (&mut self, key: &Q, f: F) -> bool
+//   where Self::Key: Borrow<Q>,
+//         Q: Eq + Hash + ToOwned<Owned = Self::Key> + ?Sized,
+//         F: FnOnce () -> Self::Value;
+
+//   /// Insert the return value of a closure into this HashMap if the provided key is not already present, and the closure returns Some;
+//   /// Returns false and does not call the closure if the key was already bound to a value;
+//   /// Returns false if the closure returned None
+//   fn try_insert_unique_with<Q, F> (&mut self, key: &Q, f: F) -> bool
+//   where Self::Key: Borrow<Q>,
+//         Q: Eq + Hash + ToOwned<Owned = Self::Key> + ?Sized,
+//         F: FnOnce () -> Option<Self::Value>;
+// }
+
+// impl<K, V, H> InsertUnique for HashMap<K, V, H>
+// where K: Hash,
+//       H: BuildHasher
+// {
+//   type Key = K;
+//   type Value = V;
+
+//   fn insert_unique<Q> (&mut self, key: &Q, value: V) -> bool
+//   where Self::Key: Borrow<Q>,
+//         Q: Eq + Hash + ToOwned<Owned = Self::Key> + ?Sized
+//   {
+//     match self.raw_entry_mut().from_key(key) {
+//       RawEntryMut::Occupied(_) => false,
+//       RawEntryMut::Vacant(slot) => {
+//         let key = key.to_owned();
+//         slot.insert(key, value);
+//         true
+//       }
+//     }
+//   }
+
+//   fn insert_unique_with<Q, F> (&mut self, key: &Q, f: F) -> bool
+//   where Self::Key: Borrow<Q>,
+//         Q: Eq + Hash + ToOwned<Owned = Self::Key> + ?Sized,
+//         F: FnOnce () -> Self::Value
+//   {
+//     match self.raw_entry_mut().from_key(key) {
+//       RawEntryMut::Occupied(_) => false,
+//       RawEntryMut::Vacant(slot) => {
+//         let key = key.to_owned();
+//         slot.insert(key, f());
+//         true
+//       }
+//     }
+//   }
+
+//   fn try_insert_unique_with<Q, F> (&mut self, key: &Q, f: F) -> bool
+//   where Self::Key: Borrow<Q>,
+//         Q: Eq + Hash + ToOwned<Owned = Self::Key> + ?Sized,
+//         F: FnOnce () -> Option<Self::Value>
+//   {
+//     match self.raw_entry_mut().from_key(key) {
+//       RawEntryMut::Occupied(_) => false,
+//       RawEntryMut::Vacant(slot) => {
+//         if let Some(value) = f() {
+//           let key = key.to_owned();
+//           slot.insert(key, value);
+//           true
+//         } else {
+//           false
+//         }
+//       }
+//     }
+//   }
+// }
+
+
+/// Allows removing elements from Vecs,
+/// without panicing if the element doesn't exist
+pub trait VecTryRemove {
+  /// The type of value removed from a Vec by try_remove
+  type Item;
+
+  /// Try to remove an element from a Vec.
+  /// Returns None if the element was not found
+  fn try_remove (&mut self, idx: usize) -> Option<Self::Item>;
 }
 
-impl<K, V, H> InsertUnique for HashMap<K, V, H>
-where K: Hash,
-      H: BuildHasher
-{
-  type Key = K;
-  type Value = V;
+impl<T> VecTryRemove for Vec<T> {
+  type Item = T;
 
-  fn insert_unique<Q> (&mut self, key: &Q, value: V) -> bool
-  where Self::Key: Borrow<Q>,
-        Q: Eq + Hash + ToOwned<Owned = Self::Key> + ?Sized
-  {
-    match self.raw_entry_mut().from_key(key) {
-      RawEntryMut::Occupied(_) => false,
-      RawEntryMut::Vacant(slot) => {
-        let key = key.to_owned();
-        slot.insert(key, value);
-        true
+  fn try_remove (&mut self, idx: usize) -> Option<T> {
+    let len = self.len();
+
+    if idx < len {
+      let ret;
+      unsafe {
+        let ptr = self.as_mut_ptr().add(idx);
+        
+        ret = std::ptr::read(ptr);
+
+        std::ptr::copy(ptr.offset(1), ptr, len - idx - 1);
+
+        self.set_len(len - 1);
       }
+
+      Some(ret)
+    } else {
+      None
     }
+  }
+}
+
+
+/// Allows finding the index of an element in a Vec
+pub trait VecIndexOf {
+  /// The type of value to be located in a Vec by index_of
+  type Item;
+
+  /// Try to find the index of an element in a Vec.
+  /// Returns None if the element was not found
+  fn index_of<E: ?Sized> (&self, e: &E) -> Option<usize>
+  where Self::Item: PartialEq<E>;
+}
+
+impl<T> VecIndexOf for Vec<T>
+where T: PartialEq
+{
+  type Item = T;
+
+  fn index_of<E: ?Sized> (&self, e: &E) -> Option<usize>
+  where T: PartialEq<E>
+  {
+    for (idx, elem) in self.iter().enumerate() {
+      if elem == e { return Some(idx) }
+    }
+
+    None
+  }
+}
+
+/// Allows finding the index of an element in a Vec, using a closure callback
+pub trait VecFind {
+  /// The type of value to be located in a Vec by index_of
+  type Item;
+
+  /// Try to find the index of an element in a Vec.
+  /// Returns None if the element was not found
+  fn find<F: FnMut (&Self::Item) -> bool> (&self, f: F) -> Option<usize>;
+}
+
+impl<T> VecFind for Vec<T>
+{
+  type Item = T;
+
+  fn find<F: FnMut (&T) -> bool> (&self, mut f: F) -> Option<usize> {
+    for (idx, elem) in self.iter().enumerate() {
+      if f(elem) { return Some(idx) }
+    }
+
+    None
   }
 }

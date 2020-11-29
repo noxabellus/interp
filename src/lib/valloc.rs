@@ -88,7 +88,9 @@ mod os {
 
     let data = raw::mmap(std::ptr::null_mut(), max_size, raw::PROT::NONE, raw::MAP::PRIVATE_ANONYMOUS, -1, 0);
 
-    if std::intrinsics::unlikely(data == raw::MAP_FAILED) {
+    if data != raw::MAP_FAILED {
+      data as _
+    } else {
       if cfg!(debug_assertions) {
         let e = read_errno();
 
@@ -96,8 +98,6 @@ mod os {
       }
 
       std::ptr::null_mut()
-    } else {
-      data as _
     }
   }
 

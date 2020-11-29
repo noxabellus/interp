@@ -7,10 +7,10 @@ use std::{
   any::Any,
 };
 
-use crate::{
+use super::{
   value::Value,
   typeinfo::TypeID,
-  vm::Fiber,
+  Fiber,
 };
 
 

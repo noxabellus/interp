@@ -3,6 +3,7 @@
 use std::{ fmt, str };
 
 use super::common::{ Operator, Loc };
+use crate::vm::TypeID;
 
 
 /// Either a real (`f64`) or an integer (`i32`)
@@ -37,6 +38,15 @@ impl str::FromStr for Number {
   }
 }
 
+
+// macro_rules! mk_node_data {
+//   $(
+//     $(#[$meta:meta])*
+//     $vis enum $name:ident<$life:lifetime> {
+//       $($),+  $(,)?
+//     }
+//   )
+// }
 
 /// Variant-specific data for an ast expression node
 #[derive(Debug)]
@@ -136,14 +146,18 @@ pub trait Node {
 macro_rules! mk_node {
   ($(
     $(#[$meta:meta])*
-    $name:ident<$life:lifetime> => $data:ty
+    $(#$ty:ident)? $name:ident<$life:lifetime> => $data:ty
   ),* $(,)?) => { $(
     $(#[$meta])*
     pub struct $name<$life> {
       /// Variant specific data for this ast node
       pub data: $data,
       /// The location in source this ast node originated from
-      pub loc: Loc
+      pub loc: Loc,
+      $(
+        /// The type of this value, if it has one that has been assigned
+        pub $ty: Option<TypeID>
+      )?
     }
 
     impl<$life> fmt::Debug for $name<$life> {
@@ -159,7 +173,7 @@ macro_rules! mk_node {
     impl<$life> Node for $name<$life> {
       type Data = $data;
 
-      fn create (data: Self::Data, loc: Loc) -> Self { Self { data, loc } }
+      fn create (data: Self::Data, loc: Loc) -> Self { Self { data, loc $(, $ty: None)? } }
 
       fn get_data (&self) -> &Self::Data { &self.data }
       fn get_loc (&self) -> Loc { self.loc }
@@ -171,16 +185,16 @@ macro_rules! mk_node {
 
 mk_node! {
   /// A grammar node representing an item in a module
-  Item<'src> => ItemData<'src>,
+  #ty Item<'src> => ItemData<'src>,
 
   /// A grammar node representing an action
-  Stmt<'src> => StmtData<'src>,
+  #ty Stmt<'src> => StmtData<'src>,
 
   /// A grammar node representing a value or actions yielding a value
-  Expr<'src> => ExprData<'src>,
+  #ty Expr<'src> => ExprData<'src>,
 
   /// A grammar node representing a type
-  TyExpr<'src> => TyExprData<'src>,
+  #ty TyExpr<'src> => TyExprData<'src>,
 
 
   /// A list of statements followed by an optional trailing expression
