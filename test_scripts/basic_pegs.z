@@ -5,43 +5,43 @@ export global a_string: string = "Hello world"
 export global a_number: int = 123
 
 export function fib (n: int) -> int {
-  if n < 2 {
-    n
-  } else {
-    fib(n - 1) + fib(n - 2)
-  }
+	if n < 2 {
+		n
+	} else {
+		fib(n - 1) + fib(n - 2)
+	}
 }
 
 type vec: record {
-  x: float,
-  y: float
+	x: float,
+	y: float
 }
 
 export function vec_magnitude (v2: vec) -> float {
-  sqrt(v2.x * v2.x + v2.y * v2.y)
+	sqrt(v2.x * v2.x + v2.y * v2.y)
 }
 
 export function vec_normalize (v2: vec) {
-  local mag = v2:vec_magnitude()
+	local mag = v2:vec_magnitude()
 
-  v2.x /= mag
-  v2.y /= mag
+	v2.x /= mag
+	v2.y /= mag
 }
 
 
 export function fib_memo (n: int) -> int {
-  local memo = map { 0 = 0, 1 = 1 }
+	local memo = map { 0 = 0, 1 = 1 }
 
-  function impl (n: int) -> int {
-    local r = memo[n]
+	function impl (n: int) -> int {
+		local r = memo[n]
 
-    if r == nil {
-      r = impl(n - 1) + impl(n - 2)
-      memo[n] = r
-    }
+		if r == nil {
+			r = impl(n - 1) + impl(n - 2)
+			memo[n] = r
+		}
 
-    r
-  }
+		r
+	}
 
-  impl(n)
+	impl(n)
 }

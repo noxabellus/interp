@@ -1,15 +1,15 @@
 //! The instruction set
 
 use std::{
-  ptr::read_unaligned,
-  mem::{ size_of },
-  slice
+	ptr::read_unaligned,
+	mem::{ size_of },
+	slice
 };
 
 use super::{
-  global::GlobalID,
-  module::ModuleID,
-  typeinfo::{ TypeID, TypeKind }
+	global::GlobalID,
+	module::ModuleID,
+	typeinfo::{ TypeID, TypeKind }
 };
 
 
@@ -23,8 +23,8 @@ use super::{
 pub struct ConstantID(pub(crate) u16);
 
 impl ConstantID {
-  /// The maximum number of constant values per function
-  pub const MAX_CONSTANTS: usize = u16::MAX as _;
+	/// The maximum number of constant values per function
+	pub const MAX_CONSTANTS: usize = u16::MAX as _;
 }
 
 /// Wraps an id for a local variable in a function
@@ -33,8 +33,8 @@ impl ConstantID {
 pub struct LocalID(pub(crate) u8);
 
 impl LocalID {
-  /// The maximum number of local variables per function
-  pub const MAX_LOCALS: usize = u8::MAX as _;
+	/// The maximum number of local variables per function
+	pub const MAX_LOCALS: usize = u8::MAX as _;
 }
 
 /// Wraps an id for an upvalue in a closure
@@ -43,8 +43,8 @@ impl LocalID {
 pub struct UpvalueID(pub(crate) u8);
 
 impl UpvalueID {
-  /// The maximum number of captured values per closure
-  pub const MAX_UPVALUES: usize = u8::MAX as _;
+	/// The maximum number of captured values per closure
+	pub const MAX_UPVALUES: usize = u8::MAX as _;
 }
 
 /// Wraps an id for a field in a record
@@ -53,8 +53,8 @@ impl UpvalueID {
 pub struct FieldID(pub(crate) u8);
 
 impl FieldID {
-  /// The maximum number of fields per record
-  pub const MAX_FIELDS: usize = u8::MAX as _;
+	/// The maximum number of fields per record
+	pub const MAX_FIELDS: usize = u8::MAX as _;
 }
 
 /// Wraps an id for a parameter in a function
@@ -63,8 +63,8 @@ impl FieldID {
 pub struct ParameterID(pub(crate) u8);
 
 impl ParameterID {
-  /// The maximum number of named parameters per function
-  pub const MAX_PARAMETERS: usize = u8::MAX as _;
+	/// The maximum number of named parameters per function
+	pub const MAX_PARAMETERS: usize = u8::MAX as _;
 }
 
 /// Wraps an offset for a bytecode jump instruction
@@ -73,10 +73,10 @@ impl ParameterID {
 pub struct JumpOffset(pub(crate) i32);
 
 impl JumpOffset {
-  /// The largest possible negative jump
-  pub const MIN_OFFSET: usize = i32::MIN as _;
-  /// The largest possible positive jump
-  pub const MAX_OFFSET: usize = i32::MAX as _;
+	/// The largest possible negative jump
+	pub const MIN_OFFSET: usize = i32::MIN as _;
+	/// The largest possible positive jump
+	pub const MAX_OFFSET: usize = i32::MAX as _;
 }
 
 
@@ -92,202 +92,202 @@ impl JumpOffset {
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Instruction {
-  // Variable access //
+	// Variable access //
 
-  LoadLocal, // (LocalID),
-  StoreLocal, // (LocalID),
+	LoadLocal, // (LocalID),
+	StoreLocal, // (LocalID),
 
-  LoadUpvalue, // (UpvalueID),
-  StoreUpvalue, // (UpvalueID),
+	LoadUpvalue, // (UpvalueID),
+	StoreUpvalue, // (UpvalueID),
 
-  LoadGlobal, // (ModuleID, GlobalID),
-  LoadGlobalDeferred, // (ModuleID)
-  StoreGlobal, // (ModuleID, GlobalID),
-  StoreGlobalDeferred, // (ModuleID)
-
-
-  // Collection access //
-
-  GetField, // (FieldID),
-  GetFieldDeferred,
-  SetField, // (FieldID),
-  SetFieldDeferred,
-
-  GetArrayElement,
-  SetArrayElement,
-
-  GetMapElement,
-  SetMapElement,
-
-  GetStringCodepoint,
-  SetStringCodepoint,
-
-  ConcatString,
-  ConcatArray,
+	LoadGlobal, // (ModuleID, GlobalID),
+	LoadGlobalDeferred, // (ModuleID)
+	StoreGlobal, // (ModuleID, GlobalID),
+	StoreGlobalDeferred, // (ModuleID)
 
 
-  // Constructors //
+	// Collection access //
 
-  CreateRecord, // (TypeID, FieldID),
-  CreateArray, // (TypeID, i32),
-  CreateMap, // (TypeID, u32),
-  CreateString,
-  CreateClosure,
+	GetField, // (FieldID),
+	GetFieldDeferred,
+	SetField, // (FieldID),
+	SetFieldDeferred,
 
+	GetArrayElement,
+	SetArrayElement,
 
-  // Constant values //
+	GetMapElement,
+	SetMapElement,
 
-  Constant, // (ConstantID),
-  Nil,
-  
+	GetStringCodepoint,
+	SetStringCodepoint,
 
-  // Unary ops //
-
-  NegateReal,
-  NegateInteger,
-
-  AbsReal,
-  AbsInteger,
-
-  NotInteger,
-  NotBoolean,
+	ConcatString,
+	ConcatArray,
 
 
-  // Binary ops //
+	// Constructors //
 
-  AddReal,
-  AddInteger,
-
-  SubReal,
-  SubInteger,
-
-  MulReal,
-  MulInteger,
-
-  DivReal,
-  DivInteger,
-
-  RemReal,
-  RemInteger,
-
-  PowReal,
-  PowInteger,
-
-  AndInteger,
-  AndBoolean,
-  
-  OrInteger,
-  OrBoolean,
-
-  XorInteger,
-
-  LShiftInteger,
-  RShiftInteger,
-
-  EqReal,
-  EqInteger,
-  EqCharacter,
-  EqBoolean,
-  EqTypeID,
-  
-  NeReal,
-  NeInteger,
-  NeCharacter,
-  NeBoolean,
-  NeTypeID,
-
-  GtReal,
-  GtInteger,
-  GtCharacter,
-
-  LtReal,
-  LtInteger,
-  LtCharacter,
-
-  GeReal,
-  GeInteger,
-  GeCharacter,
-
-  LeReal,
-  LeInteger,
-  LeCharacter,
+	CreateRecord, // (TypeID, FieldID),
+	CreateArray, // (TypeID, i32),
+	CreateMap, // (TypeID, u32),
+	CreateString,
+	CreateClosure,
 
 
-  // Control flow //
+	// Constant values //
 
-  Call,
-  CallForeign,
+	Constant, // (ConstantID),
+	Nil,
+	
 
-  Branch, // (JumpOffset),
-  ConditionalBranch, // (JumpOffset, JumpOffset),
+	// Unary ops //
 
-  Return,
+	NegateReal,
+	NegateInteger,
 
-  Panic,
+	AbsReal,
+	AbsInteger,
 
-
-  // Conversion //
-
-  CastRealToInteger,
-  CastIntegerToReal,
-  CastCharacterToInteger,
-  CastIntegerToCharacter,
-  CastIntegerToBoolean,
-  CastBooleanToInteger,
-  // CastDeferred, // not sure what this would do
+	NotInteger,
+	NotBoolean,
 
 
-  // Introspection //
+	// Binary ops //
 
-  TypeIDOfLocal, // (LocalID),
-  TypeIDOfGlobal, // (GlobalID),
-  TypeIDOfGlobalDeferred, // (ModuleID)
-  TypeIDOfField, // (FieldID),
-  TypeIDOfFieldDeferred,
-  TypeIDOfKey,
-  TypeIDOfElement,
-  TypeIDOfParameter, // (ParameterID),
-  TypeIDOfReturn,
-  TypeIDOfValue,
-  
-  ModuleExists,
-  GlobalExists, // (ModuleID)
-  FieldExists,
-  ParameterExists,
-  ReturnExists,
+	AddReal,
+	AddInteger,
 
-  FieldCount,
-  ElementCount,
-  ParameterCount,
+	SubReal,
+	SubInteger,
 
-  IsTypeKind, // (TypeKind),
+	MulReal,
+	MulInteger,
+
+	DivReal,
+	DivInteger,
+
+	RemReal,
+	RemInteger,
+
+	PowReal,
+	PowInteger,
+
+	AndInteger,
+	AndBoolean,
+	
+	OrInteger,
+	OrBoolean,
+
+	XorInteger,
+
+	LShiftInteger,
+	RShiftInteger,
+
+	EqReal,
+	EqInteger,
+	EqCharacter,
+	EqBoolean,
+	EqTypeID,
+	
+	NeReal,
+	NeInteger,
+	NeCharacter,
+	NeBoolean,
+	NeTypeID,
+
+	GtReal,
+	GtInteger,
+	GtCharacter,
+
+	LtReal,
+	LtInteger,
+	LtCharacter,
+
+	GeReal,
+	GeInteger,
+	GeCharacter,
+
+	LeReal,
+	LeInteger,
+	LeCharacter,
+
+
+	// Control flow //
+
+	Call,
+	CallForeign,
+
+	Branch, // (JumpOffset),
+	ConditionalBranch, // (JumpOffset, JumpOffset),
+
+	Return,
+
+	Panic,
+
+
+	// Conversion //
+
+	CastRealToInteger,
+	CastIntegerToReal,
+	CastCharacterToInteger,
+	CastIntegerToCharacter,
+	CastIntegerToBoolean,
+	CastBooleanToInteger,
+	// CastDeferred, // not sure what this would do
+
+
+	// Introspection //
+
+	TypeIDOfLocal, // (LocalID),
+	TypeIDOfGlobal, // (GlobalID),
+	TypeIDOfGlobalDeferred, // (ModuleID)
+	TypeIDOfField, // (FieldID),
+	TypeIDOfFieldDeferred,
+	TypeIDOfKey,
+	TypeIDOfElement,
+	TypeIDOfParameter, // (ParameterID),
+	TypeIDOfReturn,
+	TypeIDOfValue,
+	
+	ModuleExists,
+	GlobalExists, // (ModuleID)
+	FieldExists,
+	ParameterExists,
+	ReturnExists,
+
+	FieldCount,
+	ElementCount,
+	ParameterCount,
+
+	IsTypeKind, // (TypeKind),
 }
 
 
 
 /// Allows encoding and decoding a value from an instruction stream
 pub trait Codable: Copy {
-  /// Encode this value into an instruction stream as raw unaligned bytes
-  fn encode (self, code: &mut Vec<u8>) {
-    code.copy_from_slice(unsafe { slice::from_raw_parts(&self as *const Self as *const u8, size_of::<Self>()) });
-  }
+	/// Encode this value into an instruction stream as raw unaligned bytes
+	fn encode (self, code: &mut Vec<u8>) {
+		code.copy_from_slice(unsafe { slice::from_raw_parts(&self as *const Self as *const u8, size_of::<Self>()) });
+	}
 
-  /// Create an instance of this type by reading from an instruction stream
-  /// # Debug Panics
-  /// In debug mode, this will check that the given code has enough remaining data, and panic if not
-  /// # Safety
-  /// This is inherently unsafe, there is no way to check that
-  /// the instruction stream contains the specified data,
-  /// and the only trusted caller is the interpreter itself
-  unsafe fn decode (ip: &mut usize, code: &[u8]) -> Self {
-    debug_assert!(*ip + size_of::<Self>() <= code.len());
-  
-    let val = read_unaligned(code.as_ptr().add(*ip) as *const Self);
-  
-    *ip += size_of::<Self>();
-  
-    val
-  }
+	/// Create an instance of this type by reading from an instruction stream
+	/// # Debug Panics
+	/// In debug mode, this will check that the given code has enough remaining data, and panic if not
+	/// # Safety
+	/// This is inherently unsafe, there is no way to check that
+	/// the instruction stream contains the specified data,
+	/// and the only trusted caller is the interpreter itself
+	unsafe fn decode (ip: &mut usize, code: &[u8]) -> Self {
+		debug_assert!(*ip + size_of::<Self>() <= code.len());
+	
+		let val = read_unaligned(code.as_ptr().add(*ip) as *const Self);
+	
+		*ip += size_of::<Self>();
+	
+		val
+	}
 }
 
 impl Codable for Instruction { }
