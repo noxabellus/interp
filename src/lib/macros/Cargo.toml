@@ -1,5 +1,5 @@
 [package]
-name = "interp_macros"
+name = "zeta_macros"
 version = "0.0.0"
 
 [lib]

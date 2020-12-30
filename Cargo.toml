@@ -1,16 +1,16 @@
 [package]
-name = "interp"
+name = "zeta"
 version = "0.1.0"
 authors = ["noxabellus <noxabellus@gmail.com>"]
 edition = "2018"
 
 [lib]
-name = "interp"
+name = "zeta"
 path = "src/lib/lib.rs"
 crate-type = ["staticlib", "rlib"]
 
 [[bin]]
-name = "interp"
+name = "zeta"
 path = "src/main.rs"
 
 
@@ -21,4 +21,4 @@ path = "src/main.rs"
 
 
 [dependencies]
-"interp_macros" = { path="./src/lib/macros" }
+"zeta_macros" = { path="./src/lib/macros" }

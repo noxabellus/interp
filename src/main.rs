@@ -1,6 +1,6 @@
-extern crate interp;
+extern crate zeta;
 
-use interp::frontend::{
+use zeta::frontend::{
 	// token::*, lexer::*,
 	parser::*
 };

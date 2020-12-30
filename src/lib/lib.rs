@@ -14,9 +14,9 @@
 
 
 
-extern crate self as interp;
+extern crate self as zeta;
 
-extern crate interp_macros as macros;
+extern crate zeta_macros as macros;
 
 mod utils;
 mod valloc;
