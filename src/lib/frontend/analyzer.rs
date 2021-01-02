@@ -27,10 +27,7 @@ use crate::{
 		Context, GlobalID, Module, ModuleID, TypeID, TypeInfo, TypeRegistry,
 		context::BUILTIN_TYPE_ENTRIES,
 		module::ModuleBinding,
-		typeinfo::{
-			FunctionKind,
-			PrimitiveType
-		}
+		typeinfo::PrimitiveType,
 	}
 };
 
@@ -140,12 +137,12 @@ mod type_map {
 		}
 
 		pub fn get (&self, tref: TypeRef) -> &TypeEntry {
-			// Safety: the only way to create a TypeRef is thru TypeMap's interface, so indices inside are always valid
+			// Safety: the only safe way to create a TypeRef is thru TypeMap's interface, so indices inside are presumed always valid
 			unsafe { self.types.get_unchecked(tref.0 as usize) }
 		}
 
 		pub fn get_mut (&mut self, tref: TypeRef) -> &mut TypeEntry {
-			// Safety: the only way to create a TypeRef is thru TypeMap's interface, so indices inside are always valid
+			// Safety: the only safe way to create a TypeRef is thru TypeMap's interface, so indices inside are presumed always valid
 			unsafe { self.types.get_unchecked_mut(tref.0 as usize) }
 		}
 	}
@@ -182,7 +179,7 @@ impl<'f> fmt::Display for AnalysisErrDisplay<'f> {
 			=> write!(f, "Error at [{}:{}:{}]: {}", file_name, line + 1, column + 1, data),
 
 			Self(file_name, AnalysisErr { data, loc: None }) 
-			=> write!(f, "Error in [{} (Location not provided, possibly at EOF)]: {}", file_name, data)
+			=> write!(f, "Error in [{}]: {}", file_name, data)
 		}
 	}
 }
@@ -611,19 +608,20 @@ mod type_comparison {
 			=> compare_type_ref_to_id(az, stack, *a_ref, *b_id),
 
 			(Ty::Map(a_key_ref, a_val_ref), TypeInfo::Map(b_key_id, b_val_id))
-			=> compare_type_ref_to_id(az, stack, *a_key_ref, *b_key_id) && compare_type_ref_to_id(az, stack, *a_val_ref, *b_val_id),
+			=> compare_type_ref_to_id(az, stack, *a_key_ref, *b_key_id)
+			&& compare_type_ref_to_id(az, stack, *a_val_ref, *b_val_id),
 
 			(Ty::Record(a_field_names, a_field_refs), TypeInfo::Record { field_names: b_field_names, field_types: b_field_ids })
-			=> a_field_names == b_field_names && compare_type_ref_to_id_n(az, stack, a_field_refs, b_field_ids),
+			=> a_field_names == b_field_names
+			&& compare_type_ref_to_id_n(az, stack, a_field_refs, b_field_ids),
 
-			(Ty::Function(a_param_refs, a_result_ref), TypeInfo::Function { kind, parameter_types: b_param_ids, return_type: b_result_id })
-			=> {
-				*kind == FunctionKind::Free && match (a_result_ref, b_result_id) {
-					(Some(a), Some(b)) => compare_type_ref_to_id(az, stack, *a, *b),
-					_ => false
-				} && compare_type_ref_to_id_n(az, stack, a_param_refs, b_param_ids)
-			}
-
+			(Ty::Function(a_param_refs, a_result_ref), TypeInfo::Function { parameter_types: b_param_ids, return_type: b_result_id })
+			=> (match (a_result_ref, b_result_id) {
+				(Some(a), Some(b)) => compare_type_ref_to_id(az, stack, *a, *b),
+				_ => false
+			})
+			&& compare_type_ref_to_id_n(az, stack, a_param_refs, b_param_ids),
+			
 			_ => false
 		}
 	}
@@ -718,12 +716,11 @@ mod finalization {
 				out_registry.define_type(new_id, TypeInfo::Userdata(name.to_owned()));
 			}
 
-			TypeInfo::Function { kind, parameter_types, return_type } => {
-				let kind = *kind;
+			TypeInfo::Function { parameter_types, return_type } => {
 				let return_type = if let Some(i) = return_type { Some(copy(in_registry, out_registry, id_lookup_table, *i)?) } else { None };
 				let parameter_types = parameter_types.iter().map(|i| copy(in_registry, out_registry, id_lookup_table, *i)).try_collect_vec()?;
 
-				out_registry.define_type(new_id, TypeInfo::Function { kind, parameter_types, return_type });
+				out_registry.define_type(new_id, TypeInfo::Function { parameter_types, return_type });
 			}
 			
 			TypeInfo::Record { field_names, field_types } => {
@@ -782,6 +779,12 @@ mod finalization {
 				TypeEntry::Undefined => unreachable!(),
 
 				TypeEntry::New(ty) => {
+					// Safety: the following unsafe blocks are defining the type we preregister here,
+					// all the invariants that are asserted by the checked version of define_type
+					// are guaranteed if id_or_err does not return from this function,
+					// aside from the duplicate type check. This check is specifically what is being avoided here
+					// as we are intentionally creating duplicate types, as deduplication occurs as they are inserted
+					// into the context's type registry later
 					let new_id = id_or_err!(self.new_registry.pre_register_type());
 
 					self.ref_lookup_table.insert(rf, new_id);
@@ -805,7 +808,6 @@ mod finalization {
 							let return_type = if let Some(r) = result_ref { Some(self.build(*r)?) } else { None };
 
 							unsafe { self.new_registry.define_type_unchecked(new_id, TypeInfo::Function {
-								kind: FunctionKind::Free,
 								return_type,
 								parameter_types
 							}) }
@@ -815,7 +817,7 @@ mod finalization {
 							let field_names = field_names.clone();
 							let field_types = field_refs.iter().map(|rf| self.build(*rf)).try_collect_vec()?;
 							
-							unsafe { self.new_registry.define_type_unchecked (new_id, TypeInfo::Record {
+							unsafe { self.new_registry.define_type_unchecked(new_id, TypeInfo::Record {
 								field_names,
 								field_types
 							}) }
@@ -881,13 +883,12 @@ mod finalization {
 			=> a_field_names == b_field_names
 			&& compare_n(a_registry, b_registry, comparison_stack, a_field_types, b_field_types),
 			
-			(TypeInfo::Function { kind: a_kind, return_type: a_return_type, parameter_types: a_parameter_types }
-			,TypeInfo::Function { kind: b_kind, return_type: b_return_type, parameter_types: b_parameter_types })
-			=> a_kind == b_kind
-			&& match (a_return_type, b_return_type) {
+			(TypeInfo::Function { return_type: a_return_type, parameter_types: a_parameter_types }
+			,TypeInfo::Function { return_type: b_return_type, parameter_types: b_parameter_types })
+			=> (match (a_return_type, b_return_type) {
 				(Some(a), Some(b)) => compare(a_registry, b_registry, comparison_stack, *a, *b),
 				_ => false
-			}
+			})
 			&& compare_n(a_registry, b_registry, comparison_stack, a_parameter_types, b_parameter_types),
 			
 			_ => false

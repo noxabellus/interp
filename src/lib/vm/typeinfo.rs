@@ -35,9 +35,9 @@ pub enum TypeKind {
 	Array,
 	Map,
 	Function,
-	Closure,
+	// Closure,
 	Userdata,
-	Foreign,
+	// Foreign,
 }
 
 impl From<PrimitiveType> for TypeKind {
@@ -65,9 +65,7 @@ impl From<&TypeInfo> for TypeKind {
 			TypeInfo::Record { .. } => TypeKind::Record,
 			TypeInfo::Array(_) => TypeKind::Array,
 			TypeInfo::Map(_, _) => TypeKind::Map,
-			TypeInfo::Function { kind: FunctionKind::Free, .. } => TypeKind::Function,
-			TypeInfo::Function { kind: FunctionKind::Closure, .. } => TypeKind::Closure,
-			TypeInfo::Function { kind: FunctionKind::Foreign, .. } => TypeKind::Foreign,
+			TypeInfo::Function { .. } => TypeKind::Function,
 			TypeInfo::Userdata(_) => TypeKind::Userdata,
 		}
 	}
@@ -87,9 +85,9 @@ impl From<TypeDiscriminator> for TypeKind {
 			TypeDiscriminator::Map => TypeKind::Map,
 			TypeDiscriminator::String => TypeKind::String,
 			TypeDiscriminator::Function => TypeKind::Function,
-			TypeDiscriminator::Closure => TypeKind::Closure,
+			// TypeDiscriminator::Closure => TypeKind::Closure,
 			TypeDiscriminator::Userdata => TypeKind::Userdata,
-			TypeDiscriminator::Foreign => TypeKind::Foreign,
+			// TypeDiscriminator::Foreign => TypeKind::Foreign,
 		}
 	}
 }
@@ -117,17 +115,6 @@ pub enum PrimitiveType {
 	String
 }
 
-/// Singifies whether a function is a native function or if it is internal to the VM, whether it is a free function or a closure
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum FunctionKind {
-	/// A free function or method, internal to the vm, with no internal state
-	Free,
-	/// A function internal to the vm, with its own bound internal state
-	Closure,
-	/// A native machine code function provided by the vm's host
-	Foreign,
-}
 
 /// Contains type-specific data for values
 #[repr(u8)]
@@ -148,8 +135,6 @@ pub enum TypeInfo {
 	Map(TypeID, TypeID),
 	/// A functional interface, free, method or closure
 	Function {
-		/// Indicates whether a function is a native function or if it is internal to the VM, whether it is a free function or a closure
-		kind: FunctionKind,
 		/// The type of each parameter passed to a function, if any
 		parameter_types: Vec<TypeID>,
 		/// The type of value, if any, returned by a function

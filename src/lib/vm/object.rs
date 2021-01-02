@@ -24,9 +24,9 @@ pub enum ObjectKind {
 	String,
 	Record,
 	Function,
-	Closure,
+	// Closure,
 	Userdata,
-	Foreign
+	// Foreign
 }
 
 /// Component of all Object type variants,
@@ -84,20 +84,20 @@ pub unsafe trait DynCast: DynCastable {
 	/// This does not check the ObjectKind discriminant of the Object header
 	unsafe fn as_function_unchecked (self) -> *const Function;
 
-	/// Cast an Object pointer to a pointer to a variant
-	/// # Safety
-	/// This does not check the ObjectKind discriminant of the Object header
-	unsafe fn as_closure_unchecked (self) -> *const Closure;
+	// /// Cast an Object pointer to a pointer to a variant
+	// /// # Safety
+	// /// This does not check the ObjectKind discriminant of the Object header
+	// unsafe fn as_closure_unchecked (self) -> *const Closure;
 
 	/// Cast an Object pointer to a pointer to a variant
 	/// # Safety
 	/// This does not check the ObjectKind discriminant of the Object header
 	unsafe fn as_userdata_unchecked (self) -> *const Userdata;
 
-	/// Cast an Object pointer to a pointer to a variant
-	/// # Safety
-	/// This does not check the ObjectKind discriminant of the Object header
-	unsafe fn as_foreign_unchecked (self) -> *const Foreign;
+	// /// Cast an Object pointer to a pointer to a variant
+	// /// # Safety
+	// /// This does not check the ObjectKind discriminant of the Object header
+	// unsafe fn as_foreign_unchecked (self) -> *const Foreign;
 
 
 	/// Cast an Object pointer to a pointer to a variant
@@ -115,14 +115,14 @@ pub unsafe trait DynCast: DynCastable {
 	/// Cast an Object pointer to a pointer to a variant
 	fn as_function (self) -> Option<*const Function> { if self.get_kind() == ObjectKind::Function { Some(unsafe { self.as_function_unchecked() }) } else { None } }
 
-	/// Cast an Object pointer to a pointer to a variant
-	fn as_closure (self) -> Option<*const Closure> { if self.get_kind() == ObjectKind::Closure { Some(unsafe { self.as_closure_unchecked() }) } else { None } }
+	// /// Cast an Object pointer to a pointer to a variant
+	// fn as_closure (self) -> Option<*const Closure> { if self.get_kind() == ObjectKind::Closure { Some(unsafe { self.as_closure_unchecked() }) } else { None } }
 
 	/// Cast an Object pointer to a pointer to a variant
 	fn as_userdata (self) -> Option<*const Userdata> { if self.get_kind() == ObjectKind::Userdata { Some(unsafe { self.as_userdata_unchecked() }) } else { None } }
 
-	/// Cast an Object pointer to a pointer to a variant
-	fn as_foreign (self) -> Option<*const Foreign> { if self.get_kind() == ObjectKind::Foreign { Some(unsafe { self.as_foreign_unchecked() }) } else { None } }
+	// /// Cast an Object pointer to a pointer to a variant
+	// fn as_foreign (self) -> Option<*const Foreign> { if self.get_kind() == ObjectKind::Foreign { Some(unsafe { self.as_foreign_unchecked() }) } else { None } }
 }
 
 /// Allows casting between generic Object pointers and specific variants.
@@ -153,20 +153,20 @@ pub unsafe trait DynCastMut: DynCastable {
 	/// This does not check the ObjectKind discriminant of the Object header
 	unsafe fn as_function_unchecked_mut (self) -> *mut Function;
 
-	/// Cast an Object pointer to a pointer to a variant
-	/// # Safety
-	/// This does not check the ObjectKind discriminant of the Object header
-	unsafe fn as_closure_unchecked_mut (self) -> *mut Closure;
+	// /// Cast an Object pointer to a pointer to a variant
+	// /// # Safety
+	// /// This does not check the ObjectKind discriminant of the Object header
+	// unsafe fn as_closure_unchecked_mut (self) -> *mut Closure;
 
 	/// Cast an Object pointer to a pointer to a variant
 	/// # Safety
 	/// This does not check the ObjectKind discriminant of the Object header
 	unsafe fn as_userdata_unchecked_mut (self) -> *mut Userdata;
 
-	/// Cast an Object pointer to a pointer to a variant
-	/// # Safety
-	/// This does not check the ObjectKind discriminant of the Object header
-	unsafe fn as_foreign_unchecked_mut (self) -> *mut Foreign;
+	// /// Cast an Object pointer to a pointer to a variant
+	// /// # Safety
+	// /// This does not check the ObjectKind discriminant of the Object header
+	// unsafe fn as_foreign_unchecked_mut (self) -> *mut Foreign;
 
 
 	/// Cast an Object pointer to a pointer to a variant
@@ -184,14 +184,14 @@ pub unsafe trait DynCastMut: DynCastable {
 	/// Cast an Object pointer to a pointer to a variant
 	fn as_function_mut (self) -> Option<*mut Function> { if self.get_kind() == ObjectKind::Function { Some(unsafe { self.as_function_unchecked_mut() }) } else { None } }
 
-	/// Cast an Object pointer to a pointer to a variant
-	fn as_closure_mut (self) -> Option<*mut Closure> { if self.get_kind() == ObjectKind::Closure { Some(unsafe { self.as_closure_unchecked_mut() }) } else { None } }
+	// /// Cast an Object pointer to a pointer to a variant
+	// fn as_closure_mut (self) -> Option<*mut Closure> { if self.get_kind() == ObjectKind::Closure { Some(unsafe { self.as_closure_unchecked_mut() }) } else { None } }
 
 	/// Cast an Object pointer to a pointer to a variant
 	fn as_userdata_mut (self) -> Option<*mut Userdata> { if self.get_kind() == ObjectKind::Userdata { Some(unsafe { self.as_userdata_unchecked_mut() }) } else { None } }
 
-	/// Cast an Object pointer to a pointer to a variant
-	fn as_foreign_mut (self) -> Option<*mut Foreign> { if self.get_kind() == ObjectKind::Foreign { Some(unsafe { self.as_foreign_unchecked_mut() }) } else { None } }
+	// /// Cast an Object pointer to a pointer to a variant
+	// fn as_foreign_mut (self) -> Option<*mut Foreign> { if self.get_kind() == ObjectKind::Foreign { Some(unsafe { self.as_foreign_unchecked_mut() }) } else { None } }
 }
 
 
@@ -211,9 +211,9 @@ unsafe impl DynCast for *const Object {
 	unsafe fn as_string_unchecked (self) -> *const String { self as _ }
 	unsafe fn as_record_unchecked (self) -> *const Record { self as _ }
 	unsafe fn as_function_unchecked (self) -> *const Function { self as _ }
-	unsafe fn as_closure_unchecked (self) -> *const Closure { self as _ }
+	// unsafe fn as_closure_unchecked (self) -> *const Closure { self as _ }
 	unsafe fn as_userdata_unchecked (self) -> *const Userdata { self as _ }
-	unsafe fn as_foreign_unchecked (self) -> *const Foreign { self as _ }
+	// unsafe fn as_foreign_unchecked (self) -> *const Foreign { self as _ }
 }
 
 unsafe impl DynCast for *mut Object {
@@ -222,9 +222,9 @@ unsafe impl DynCast for *mut Object {
 	unsafe fn as_string_unchecked (self) -> *const String { self as _ }
 	unsafe fn as_record_unchecked (self) -> *const Record { self as _ }
 	unsafe fn as_function_unchecked (self) -> *const Function { self as _ }
-	unsafe fn as_closure_unchecked (self) -> *const Closure { self as _ }
+	// unsafe fn as_closure_unchecked (self) -> *const Closure { self as _ }
 	unsafe fn as_userdata_unchecked (self) -> *const Userdata { self as _ }
-	unsafe fn as_foreign_unchecked (self) -> *const Foreign { self as _ }
+	// unsafe fn as_foreign_unchecked (self) -> *const Foreign { self as _ }
 }
 
 unsafe impl DynCastMut for *mut Object {
@@ -233,9 +233,9 @@ unsafe impl DynCastMut for *mut Object {
 	unsafe fn as_string_unchecked_mut (self) -> *mut String { self as _ }
 	unsafe fn as_record_unchecked_mut (self) -> *mut Record { self as _ }
 	unsafe fn as_function_unchecked_mut (self) -> *mut Function { self as _ }
-	unsafe fn as_closure_unchecked_mut (self) -> *mut Closure { self as _ }
+	// unsafe fn as_closure_unchecked_mut (self) -> *mut Closure { self as _ }
 	unsafe fn as_userdata_unchecked_mut (self) -> *mut Userdata { self as _ }
-	unsafe fn as_foreign_unchecked_mut (self) -> *mut Foreign { self as _ }
+	// unsafe fn as_foreign_unchecked_mut (self) -> *mut Foreign { self as _ }
 }
 
 
@@ -427,11 +427,33 @@ impl Hash for Record {
 }
 
 
+/// Singifies whether a function is a native function or if it is internal to the VM, whether it is a free function or a closure
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FunctionKind {
+	/// A free function or method, internal to the vm, with no internal state
+	Free,
+	/// A function internal to the vm, with its own bound internal state
+	Closure,
+	/// A native machine code function provided by the vm's host
+	Foreign,
+}
+
+
+/// A wrapper around the standard Object header, providing specific information on the variant of a function
+#[repr(C)]
+pub struct FunctionHeader {
+	/// Contains the object's type id and linked list pointer
+	pub object_header: Header,
+	/// Discriminant for the kind of the function containing to this header
+	pub kind: FunctionKind,
+}
+
 /// A free function
 #[repr(C)]
 pub struct Function {
 	/// Contains the object's type id and linked list pointer
-	pub header: Header,
+	pub header: FunctionHeader,
 	/// Contains any constant values used in the bytecode of a Function.
 	/// This reduces redundancy and allows garbage collector tracking of object constants
 	pub constants: Vec<Value>,
@@ -443,11 +465,20 @@ pub struct Function {
 #[repr(C)]
 pub struct Closure {
 	/// Contains the object's type id and linked list pointer
-	pub header: Header,
+	pub header: FunctionHeader,
 	/// The function over which this Closure is formed
 	pub function: *mut Function,
 	/// An array of bindings to any captured Values used by a Closure
 	pub upvalues: Vec<*mut Value>,
+}
+
+/// Wrapper for native functions
+#[repr(C)]
+pub struct Foreign {
+	/// Contains the object's type id and linked list pointer
+	pub header: FunctionHeader,
+	/// Contains the actual value of the object
+	pub data: extern "C" fn (*mut Fiber) -> ()
 }
 
 /// Wrapper for native data
@@ -459,11 +490,3 @@ pub struct Userdata {
 	pub data: *mut dyn Any
 }
 
-/// Wrapper for native functions
-#[repr(C)]
-pub struct Foreign {
-	/// Contains the object's type id and linked list pointer
-	pub header: Header,
-	/// Contains the actual value of the object
-	pub data: extern "C" fn (*mut Fiber) -> ()
-}
