@@ -18,7 +18,7 @@ use super::{
 /// A unique identifier for a module inside a ModuleRegistry
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct ModuleID(u16);
+pub struct ModuleID(pub(crate) u16);
 
 impl ModuleID {
 	/// The maximum number of modules a script can create
@@ -95,6 +95,11 @@ impl Module {
 	/// Get a global by id
 	pub fn get_global (&self, id: GlobalID) -> Option<&Value> {
 		self.globals.get(id.0 as usize)
+	}
+
+	/// Get an iterator of (&String, &ModuleBinding) over all the ModuleBindings in a Module
+	pub fn bindings (&self) -> std::collections::hash_map::Iter<'_, String, ModuleBinding> {
+		self.bindings.iter()
 	}
 
 	/// Get a global by id

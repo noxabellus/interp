@@ -97,6 +97,10 @@ mod type_map {
 			s.load_builtins();
 			s
 		}
+
+		pub fn ref_iter (&self) -> std::iter::Map<std::ops::Range<u16>, impl FnMut (u16) -> TypeRef> {
+			(0..self.types.len() as u16).map(TypeRef)
+		}
 		
 		pub fn create_entry (&mut self, entry: TypeEntry) -> Result<TypeRef, String> {
 			if self.types.len() < TypeRef::MAX_TYPE_REFS as usize {
@@ -150,90 +154,6 @@ mod type_map {
 pub use type_map::*;
 
 
-/// Stores contextual information specific to a semantic analysis run
-#[derive(Debug)]
-pub struct Analyzer<'c> {
-	pub ctx: &'c mut Context,
-	pub module: Module,
-	pub top_syms: HashMap<String, Symbol>,
-	pub type_map: TypeMap,
-}
-
-
-
-macro_rules! err {
-	($loc:expr, $fmt:literal $(, $($params:expr),* $(,)?)?) => {
-		Err(err_data!($loc, $fmt $(, $($params),*)?))
-	};
-
-	($fmt:literal $(, $($params:expr),* $(,)?)?) => {
-		Err(err_data!($fmt $(, $($params),*)?))
-	};
-}
-
-macro_rules! err_data {
-	($loc:expr, $fmt:literal $(, $($params:expr),* $(,)?)?) => {
-		AnalysisErr { data: format!($fmt $(, $($params),*)?), loc: Some($loc) }
-	};
-
-	($fmt:literal $(, $($params:expr),* $(,)?)?) => {
-		AnalysisErr { data: format!($fmt $(, $($params),*)?), loc: None }
-	};
-}
-
-impl<'c> Analyzer<'c> {
-	/// Create a new semantic analyzer
-	pub fn new (ctx: &'c mut Context) -> Self {
-		let mut out = Self {
-			ctx,
-			module: Module::default(),
-			top_syms: HashMap::default(),
-			type_map: TypeMap::default()
-		};
-		out.load_builtins();
-		out
-	}
-
-	fn load_builtins (&mut self) {
-		for (i, &(name, _)) in BUILTIN_TYPE_ENTRIES.iter().enumerate() {
-			self.top_syms.insert(name.to_owned(), Symbol { data: SymbolData::Type(TypeRef(i as _)), loc: None });
-		}
-	}
-
-	fn clear (&mut self) {
-		self.top_syms.clear();
-		self.type_map.clear();
-		self.load_builtins()
-	}
-
-	/// Run a semantic analyzer over a given ast
-	pub fn analyze (&mut self, items: &mut [Item<'_>]) -> AnalysisResult<Module> {
-		self.clear();
-
-		bind_top_level(self, items)?;
-
-		make_typedefs(self, items)?;
-
-
-		finalize_types(self)?;
-		
-		Ok(mem::take(&mut self.module))
-	}
-
-	fn bind (&mut self, key: &str, data: SymbolData, loc: Loc) -> AnalysisResult {
-		if let Some(existing_sym) = self.top_syms.get(key) {
-			if let Some(existing_loc) = existing_sym.loc {
-				err!(loc, "`{}` shadows existing symbol (originally bound at [{}])", key, existing_loc)
-			} else {
-				err!(loc, "`{}` shadows existing symbol", key)
-			}
-		} else {
-			self.top_syms.insert(key.to_owned(), Symbol { data, loc: Some(loc) });
-			Ok(())
-		}
-	}
-}
-
 
 
 /// An error that resulted from analysis of a source module
@@ -275,14 +195,110 @@ impl AnalysisErr {
 }
 
 
+/// Stores contextual information specific to a semantic analysis run
+#[derive(Debug)]
+pub struct Analyzer<'c> {
+	pub ctx: &'c mut Context,
+	pub module: Module,
+	pub top_syms: HashMap<String, Symbol>,
+	pub type_map: TypeMap,
+}
+
+
+
+macro_rules! err {
+	($loc:expr, $fmt:literal $(, $($params:expr),* $(,)?)?) => {
+		Err(err_data!($loc, $fmt $(, $($params),*)?))
+	};
+
+	($fmt:literal $(, $($params:expr),* $(,)?)?) => {
+		Err(err_data!($fmt $(, $($params),*)?))
+	};
+}
+
+macro_rules! err_data {
+	($loc:expr, $fmt:literal $(, $($params:expr),* $(,)?)?) => {
+		AnalysisErr { data: format!($fmt $(, $($params),*)?), loc: Some($loc) }
+	};
+
+	($fmt:literal $(, $($params:expr),* $(,)?)?) => {
+		AnalysisErr { data: format!($fmt $(, $($params),*)?), loc: None }
+	};
+}
+
+impl<'c> Analyzer<'c> {
+	/// Create a new semantic analyzer
+	pub fn new (ctx: &'c mut Context) -> Self {
+		let mut out = Self {
+			ctx,
+			module: Module::default(),
+			top_syms: HashMap::default(),
+			type_map: TypeMap::default()
+		};
+
+		out.load_core();
+
+		out
+	}
+
+	fn load_core (&mut self) {
+		let core_mod = self.ctx.modules.get_module(ModuleID(0)).unwrap();
+		
+		for (name, binding) in core_mod.bindings() {
+			let data = match binding {
+				ModuleBinding::Global(gid) => SymbolData::Global(*gid),
+				ModuleBinding::Type(tid) => {
+					let tref = self.type_map.existing_ty(*tid).unwrap();
+					SymbolData::Type(tref)
+				}
+			};
+
+			self.top_syms.insert(name.to_owned(), Symbol { data, loc: None });
+		}
+	}
+
+	fn clear (&mut self) {
+		self.top_syms.clear();
+		self.type_map.clear();
+		self.load_core()
+	}
+
+	fn bind (&mut self, key: &str, data: SymbolData, loc: Loc) -> AnalysisResult {
+		if let Some(existing_sym) = self.top_syms.get(key) {
+			if let Some(existing_loc) = existing_sym.loc {
+				err!(loc, "`{}` shadows existing symbol (originally bound at [{}])", key, existing_loc)
+			} else {
+				err!(loc, "`{}` shadows existing symbol", key)
+			}
+		} else {
+			self.top_syms.insert(key.to_owned(), Symbol { data, loc: Some(loc) });
+			Ok(())
+		}
+	}
+
+
+	/// Run a semantic analyzer over a given ast
+	pub fn analyze (&mut self, items: &mut [Item<'_>]) -> AnalysisResult<Module> {
+		self.clear();
+
+		bind_top_level(self, items)?;
+
+		make_typedefs(self, items)?;
+
+		finalize_types(self)?;
+		
+		Ok(mem::take(&mut self.module))
+	}
+}
+
+
+
 /// Perform semantic analysis on top level ast items, producing a Module
 pub fn analyze (ctx: &mut Context, items: &mut [Item<'_>]) -> AnalysisResult<Module> {
 	let mut az = Analyzer::new(ctx);
 
 	az.analyze(items)
 }
-
-
 
 
 
@@ -387,16 +403,14 @@ passes! {
 
 				if let SymbolData::Type(existing_tref) = sym.data {
 					let entry = az.type_map.get_mut(existing_tref);
-					debug_assert!(matches!(entry, TypeEntry::Undefined));
 					*entry = TypeEntry::Redirect(tref)
 				} else {
-					// unreachable because shadowing would have already produced an error,
-					// and the previous pass has produced the Undefined value already
+					// unreachable because shadowing would have already produced an error
 					unreachable!()
 				}
 			}
 
-			// Only processing type defs here??
+			// Only processing type defs here
 			| ItemData::Import { .. }
 			| ItemData::Global { .. }
 			| ItemData::Function { .. }
@@ -457,7 +471,6 @@ fn build_ty (az: &mut Analyzer, texpr: &TyExpr<'_>) -> AnalysisResult<TypeRef> {
 		}
 
 		TyExprData::Record(fields) => {
-			// TODO: cache/temp storage?
 			let mut locs: HashMap<&str, Loc> = HashMap::default();
 			let mut names = vec![];
 			let mut tys = vec![];
@@ -522,42 +535,70 @@ fn build_ty (az: &mut Analyzer, texpr: &TyExpr<'_>) -> AnalysisResult<TypeRef> {
 
 
 
+mod type_comparison {
+	use super::*;
 
-
-fn reduce_redirects (az: &Analyzer, base: TypeRef) -> TypeRef {
-	if let &TypeEntry::Redirect(next_ref) = az.type_map.get(base) {
-		reduce_redirects(az, next_ref)
-	} else {
-		base
-	}
-}
-
-fn type_eq_impl<'a> (az: &'a Analyzer<'a>, stack: &mut Vec<(TypeRef, TypeRef)>, a: TypeRef, b: TypeRef) -> bool {
-	fn type_eq_impl_n (az: &Analyzer, stack: &mut Vec<(TypeRef, TypeRef)>, a: &[TypeRef], b: &[TypeRef]) -> bool {
-		for (a, b) in a.iter().zip(b.iter()) {
-			if !type_eq_impl(az, stack, *a, *b) { return false }
+	fn reduce_redirects (az: &Analyzer, base: TypeRef) -> TypeRef {
+		if let &TypeEntry::Redirect(next_ref) = az.type_map.get(base) {
+			reduce_redirects(az, next_ref)
+		} else {
+			base
 		}
-	
+	}
+
+	pub fn type_eq_stack<'a> (az: &'a Analyzer<'a>, stack: &mut Vec<(TypeRef, TypeRef)>, a: TypeRef, b: TypeRef) -> bool {
+		let a = reduce_redirects(az, a);
+		let b = reduce_redirects(az, b);
+
+		if a == b { return true }
+
+		if stack.contains(&(a, b)) { return true }
+		else { stack.push((a, b)) }
+		
+		let a = az.type_map.get(a);
+		let b = az.type_map.get(b);
+
+		let res = match (a, b) {
+			(TypeEntry::Existing(a), TypeEntry::Existing(b)) => a == b,
+			(TypeEntry::New(a), TypeEntry::New(b)) => compare_ty_to_ty(az, stack, a, b),
+
+			| (TypeEntry::New(ty), TypeEntry::Existing(id))
+			| (TypeEntry::Existing(id), TypeEntry::New(ty))
+			=> compare_ty_to_typeinfo(az, stack, ty, az.ctx.types.get_type(*id).unwrap()),
+
+			_ => unreachable!(),
+		};
+
+		stack.pop();
+
+		res
+	}
+
+	pub fn type_eq_stack_n (az: &Analyzer, stack: &mut Vec<(TypeRef, TypeRef)>, a: &[TypeRef], b: &[TypeRef]) -> bool {
+		for (a, b) in a.iter().zip(b.iter()) {
+			if !type_eq_stack(az, stack, *a, *b) { return false }
+		}
+
 		true
 	}
 
 	fn compare_ty_to_ty (az: &Analyzer, stack: &mut Vec<(TypeRef, TypeRef)>, a: &Ty, b: &Ty) -> bool {
 		match (a, b) {
-			(Ty::Array(a), Ty::Array(b))
-			=> type_eq_impl(az, stack, *a, *b),
+			(Ty::Array(a_elem), Ty::Array(b_elem))
+			=> type_eq_stack(az, stack, *a_elem, *b_elem),
 
-			(Ty::Map(x, y), Ty::Map(i, j))
-			=> type_eq_impl(az, stack, *x, *i) && type_eq_impl(az, stack, *y, *j),
+			(Ty::Map(a_key, a_val), Ty::Map(b_key, b_val))
+			=> type_eq_stack(az, stack, *a_key, *b_key) && type_eq_stack(az, stack, *a_val, *b_val),
 
 			(Ty::Record(a_names, a_refs), Ty::Record(b_names, b_refs))
-			=> a_names == b_names && type_eq_impl_n(az, stack, a_refs, b_refs),
+			=> a_names == b_names && type_eq_stack_n(az, stack, a_refs, b_refs),
 			
 			(Ty::Function(a_params, a_result), Ty::Function(b_params, b_result))
 			=> {
 				(match (a_result, b_result) {
-					(Some(a), Some(b)) => type_eq_impl(az, stack, *a, *b),
+					(Some(a), Some(b)) => type_eq_stack(az, stack, *a, *b),
 					_ => false
-				}) && type_eq_impl_n(az, stack, a_params, b_params)
+				}) && type_eq_stack_n(az, stack, a_params, b_params)
 			}
 
 			_ => false
@@ -566,161 +607,130 @@ fn type_eq_impl<'a> (az: &'a Analyzer<'a>, stack: &mut Vec<(TypeRef, TypeRef)>, 
 
 	fn compare_ty_to_typeinfo (az: &Analyzer, stack: &mut Vec<(TypeRef, TypeRef)>, ty: &Ty, info: &TypeInfo) -> bool {
 		match (ty, info) {
-			(Ty::Array(a), TypeInfo::Array(b))
-			=> compare_type_ref_to_id(az, stack, *a, *b),
-	
-			(Ty::Map(x, y), TypeInfo::Map(i, j))
-			=> compare_type_ref_to_id(az, stack, *x, *i) && compare_type_ref_to_id(az, stack, *y, *j),
-	
-			(Ty::Record(names, refs), TypeInfo::Record { field_names, field_types })
-			=> names == field_names && compare_type_ref_to_id_n(az, stack, refs, field_types),
-	
-			(Ty::Function(param_refs, result_ref), TypeInfo::Function { kind, parameter_types, return_type })
+			(Ty::Array(a_ref), TypeInfo::Array(b_id))
+			=> compare_type_ref_to_id(az, stack, *a_ref, *b_id),
+
+			(Ty::Map(a_key_ref, a_val_ref), TypeInfo::Map(b_key_id, b_val_id))
+			=> compare_type_ref_to_id(az, stack, *a_key_ref, *b_key_id) && compare_type_ref_to_id(az, stack, *a_val_ref, *b_val_id),
+
+			(Ty::Record(a_field_names, a_field_refs), TypeInfo::Record { field_names: b_field_names, field_types: b_field_ids })
+			=> a_field_names == b_field_names && compare_type_ref_to_id_n(az, stack, a_field_refs, b_field_ids),
+
+			(Ty::Function(a_param_refs, a_result_ref), TypeInfo::Function { kind, parameter_types: b_param_ids, return_type: b_result_id })
 			=> {
-				*kind == FunctionKind::Free && match (result_ref, return_type) {
+				*kind == FunctionKind::Free && match (a_result_ref, b_result_id) {
 					(Some(a), Some(b)) => compare_type_ref_to_id(az, stack, *a, *b),
 					_ => false
-				} && compare_type_ref_to_id_n(az, stack, param_refs, parameter_types)
+				} && compare_type_ref_to_id_n(az, stack, a_param_refs, b_param_ids)
 			}
-	
+
 			_ => false
 		}
 	}
-	
+
 	fn compare_type_ref_to_id (az: &Analyzer, stack: &mut Vec<(TypeRef, TypeRef)>, a: TypeRef, b: TypeID) -> bool {
 		match az.type_map.get(a).resolve_redirects(az) {
 			TypeEntry::Existing(a) => *a == b,
 			TypeEntry::New(a) => compare_ty_to_typeinfo(az, stack, a, az.ctx.types.get_type(b).unwrap()),
-	
+
 			| TypeEntry::Redirect(_)
 			| TypeEntry::Undefined
 			=> unreachable!()
 		}
 	}
-	
+
 	fn compare_type_ref_to_id_n (az: &Analyzer, stack: &mut Vec<(TypeRef, TypeRef)>, a: &[TypeRef], b: &[TypeID]) -> bool {
 		for (a, b) in a.iter().zip(b.iter()) {
 			if !compare_type_ref_to_id(az, stack, *a, *b) { return false }
 		}
-	
+
 		true
 	}
 
-	
-	let a = reduce_redirects(az, a);
-	let b = reduce_redirects(az, b);
+	pub fn type_eq_n (az: &Analyzer, a: &[TypeRef], b: &[TypeRef]) -> bool {
+		let mut stack = vec![];
 
-	if a == b { return true }
+		for (a, b) in a.iter().zip(b.iter()) {
+			if !type_eq_stack(az, &mut stack, *a, *b) { return false }
+		}
 
-	if stack.contains(&(a, b)) { return true }
-	else { stack.push((a, b)) }
-	
-	let a = az.type_map.get(a);
-	let b = az.type_map.get(b);
-
-	let res = match (a, b) {
-		(TypeEntry::Existing(a), TypeEntry::Existing(b)) => a == b,
-		(TypeEntry::New(a), TypeEntry::New(b)) => compare_ty_to_ty(az, stack, a, b),
-
-		| (TypeEntry::New(x), TypeEntry::Existing(y))
-		| (TypeEntry::Existing(y), TypeEntry::New(x))
-		=> compare_ty_to_typeinfo(az, stack, x, az.ctx.types.get_type(*y).unwrap()),
-
-		| (TypeEntry::Undefined, _) | (_, TypeEntry::Undefined)
-		| (TypeEntry::Redirect(_), _) | (_, TypeEntry::Redirect(_))
-		=> unreachable!(),
-	};
-
-	stack.pop();
-
-	res
-}
-
-fn type_eq_n (az: &Analyzer, a: &[TypeRef], b: &[TypeRef]) -> bool {
-	let mut stack = vec![];
-
-	for (a, b) in a.iter().zip(b.iter()) {
-		if !type_eq_impl(az, &mut stack, *a, *b) { return false }
+		true
 	}
 
-	true
-}
-
-fn type_eq (az: &Analyzer, a: TypeRef, b: TypeRef) -> bool {
-	let mut stack = vec![];
-	type_eq_impl(az, &mut stack, a, b)
-}
-
-
-
-
-
-
-fn finalize_types (az: &mut Analyzer) -> AnalysisResult {
-	struct IdentSys<'i> {
-		type_map: &'i TypeMap,
-		ctx_registry: &'i TypeRegistry,
-		new_registry: TypeRegistry,
-		ref_lookup_table: HashMap<TypeRef, TypeID>,
-		id_lookup_table: HashMap<TypeID, TypeID>,
+	pub fn type_eq (az: &Analyzer, a: TypeRef, b: TypeRef) -> bool {
+		let mut stack = vec![];
+		type_eq_stack(az, &mut stack, a, b)
 	}
+}
+
+#[allow(unused_imports)] // CLEANUP remove this
+use type_comparison::{
+	type_eq, type_eq_n,
+	type_eq_stack, type_eq_stack_n,
+};
+
+
+
+mod finalization {
+	use super::*;
 
 	macro_rules! id_or_err {
-		($expr:expr) => { if let Some(id) = $expr { id } else { return err!("Cannot register more than {} types in a Context", TypeID::MAX_TYPES) } }
+		($expr:expr) => { if let Some(id) = $expr { id } else { return err!("Cannot register more than {} types in a TypeRegistry", TypeID::MAX_TYPES) } }
 	}
+	
 
-	fn copy_tinfo (
+	fn copy (
 		in_registry: &TypeRegistry,
 		out_registry: &mut TypeRegistry,
 		id_lookup_table: &mut HashMap<TypeID, TypeID>,
-		i: TypeID
+		old_id: TypeID
 	) -> AnalysisResult<TypeID> {
-		if let Some(ni) = id_lookup_table.get(&i) {
-			return Ok(*ni)
+		if let Some(new_id) = id_lookup_table.get(&old_id) {
+			return Ok(*new_id)
 		} 
 
-		let tinfo = in_registry.get_type(i).unwrap();
+		let info = in_registry.get_type(old_id).unwrap();
 
-		if matches!(tinfo, TypeInfo::Primitive(_)) {
-			id_lookup_table.insert(i, i);
-			return Ok(i)
+		if matches!(info, TypeInfo::Primitive(_)) {
+			id_lookup_table.insert(old_id, old_id);
+			return Ok(old_id)
 		}
 
-		let ni = id_or_err!(out_registry.pre_register_type());
+		let new_id = id_or_err!(out_registry.pre_register_type());
 
-		id_lookup_table.insert(i, ni);
+		id_lookup_table.insert(old_id, new_id);
 
-		match tinfo {
-			TypeInfo::Array(ei) => {
-				let nei = copy_tinfo(in_registry, out_registry, id_lookup_table, *ei)?;
+		match info {
+			TypeInfo::Array(old_elem_id) => {
+				let new_elem_id = copy(in_registry, out_registry, id_lookup_table, *old_elem_id)?;
 
-				out_registry.define_type(ni, TypeInfo::Array(nei));
+				out_registry.define_type(new_id, TypeInfo::Array(new_elem_id));
 			}
 
-			TypeInfo::Map(ki, vi) => {
-				let nki = copy_tinfo(in_registry, out_registry, id_lookup_table, *ki)?;
-				let nvi = copy_tinfo(in_registry, out_registry, id_lookup_table, *vi)?;
+			TypeInfo::Map(old_key_id, old_val_id) => {
+				let new_key_id = copy(in_registry, out_registry, id_lookup_table, *old_key_id)?;
+				let old_val_id = copy(in_registry, out_registry, id_lookup_table, *old_val_id)?;
 
-				out_registry.define_type(ni, TypeInfo::Map(nki, nvi));
+				out_registry.define_type(new_id, TypeInfo::Map(new_key_id, old_val_id));
 			}
 
 			TypeInfo::Userdata(name) => {
-				out_registry.define_type(ni, TypeInfo::Userdata(name.to_owned()));
+				out_registry.define_type(new_id, TypeInfo::Userdata(name.to_owned()));
 			}
 
 			TypeInfo::Function { kind, parameter_types, return_type } => {
 				let kind = *kind;
-				let return_type = if let Some(i) = return_type { Some(copy_tinfo(in_registry, out_registry, id_lookup_table, *i)?) } else { None };
-				let parameter_types = parameter_types.iter().map(|i| copy_tinfo(in_registry, out_registry, id_lookup_table, *i)).try_collect_vec()?;
+				let return_type = if let Some(i) = return_type { Some(copy(in_registry, out_registry, id_lookup_table, *i)?) } else { None };
+				let parameter_types = parameter_types.iter().map(|i| copy(in_registry, out_registry, id_lookup_table, *i)).try_collect_vec()?;
 
-				out_registry.define_type(ni, TypeInfo::Function { kind, parameter_types, return_type });
+				out_registry.define_type(new_id, TypeInfo::Function { kind, parameter_types, return_type });
 			}
 			
 			TypeInfo::Record { field_names, field_types } => {
 				let field_names = field_names.clone();
-				let field_types = field_types.iter().map(|i| copy_tinfo(in_registry, out_registry, id_lookup_table, *i)).try_collect_vec()?;
+				let field_types = field_types.iter().map(|i| copy(in_registry, out_registry, id_lookup_table, *i)).try_collect_vec()?;
 				
-				out_registry.define_type(ni, TypeInfo::Record {
+				out_registry.define_type(new_id, TypeInfo::Record {
 					field_names,
 					field_types
 				});
@@ -729,100 +739,106 @@ fn finalize_types (az: &mut Analyzer) -> AnalysisResult {
 			TypeInfo::Primitive(_) => unreachable!()
 		};
 
-		Ok(ni)
+		Ok(new_id)
 	}
 
-	fn identify_types (az: &mut Analyzer) -> AnalysisResult<(TypeRegistry, HashMap<TypeRef, TypeID>)> {
-		impl<'i> IdentSys<'i> {
-			fn new (az: &'i mut Analyzer) -> Self {
-				Self {
-					type_map: &az.type_map,
-					ctx_registry: &az.ctx.types,
-					new_registry: TypeRegistry::default(),
-					ref_lookup_table: HashMap::default(),
-					id_lookup_table: HashMap::default(),
-				}
-			}
+	
 
-			fn copy_existing (&mut self, i: TypeID) -> AnalysisResult<TypeID> {
-				copy_tinfo(&self.ctx_registry, &mut self.new_registry, &mut self.id_lookup_table, i)
-			}
-			
+	struct Builder<'i> {
+		type_map: &'i TypeMap,
+		ctx_registry: &'i TypeRegistry,
+		new_registry: TypeRegistry,
+		ref_lookup_table: HashMap<TypeRef, TypeID>,
+		id_lookup_table: HashMap<TypeID, TypeID>,
+	}
 
-			fn identify_type (&mut self, r: TypeRef) -> AnalysisResult<TypeID> {
-				if let Some(i) = self.ref_lookup_table.get(&r) {
-					return Ok(*i)
-				}
-
-				let t = self.type_map.get(r);
-
-				let i = match t {
-					TypeEntry::Existing(i) => self.copy_existing(*i)?,
-
-					TypeEntry::New(ty) => {
-						let ni = id_or_err!(self.new_registry.pre_register_type());
-
-						// CLEANUP this is a duplicate insert for the outer
-						self.ref_lookup_table.insert(r, ni);
-
-						match ty {
-							Ty::Array(er) => {
-								let ei = self.identify_type(*er)?;
-
-								unsafe { self.new_registry.define_type_unchecked(ni, TypeInfo::Array(ei)) }
-							}
-
-							Ty::Map(kr, vr) => {
-								let ki = self.identify_type(*kr)?;
-								let vi = self.identify_type(*vr)?;
-
-								unsafe { self.new_registry.define_type_unchecked(ni, TypeInfo::Map(ki, vi)) }
-							}
-
-							Ty::Function(param_rs, result_r) => {
-								let parameter_types = param_rs.iter().map(|r| self.identify_type(*r)).try_collect_vec()?;
-								let return_type = if let Some(r) = result_r { Some(self.identify_type(*r)?) } else { None };
-
-								unsafe { self.new_registry.define_type_unchecked(ni, TypeInfo::Function {
-									kind: FunctionKind::Free,
-									return_type,
-									parameter_types
-								}) }
-							}
-
-							Ty::Record(field_names, field_rs) => {
-								let field_names = field_names.clone();
-								let field_types = field_rs.iter().map(|r| self.identify_type(*r)).try_collect_vec()?;
-								
-								unsafe { self.new_registry.define_type_unchecked (ni, TypeInfo::Record {
-									field_names,
-									field_types
-								}) }
-							}
-						}
-
-						ni
-					}
-
-					TypeEntry::Redirect(inner) => self.identify_type(*inner)?,
-
-					TypeEntry::Undefined => unreachable!()
-				};
-
-				self.ref_lookup_table.insert(r, i);
-
-				Ok(i)
+	impl<'i> Builder<'i> {
+		fn new (az: &'i mut Analyzer) -> Self {
+			Self {
+				type_map: &az.type_map,
+				ctx_registry: &az.ctx.types,
+				new_registry: TypeRegistry::default(),
+				ref_lookup_table: HashMap::default(),
+				id_lookup_table: HashMap::default(),
 			}
 		}
 
+		fn copy_existing (&mut self, i: TypeID) -> AnalysisResult<TypeID> {
+			copy(&self.ctx_registry, &mut self.new_registry, &mut self.id_lookup_table, i)
+		}
 
-		let range = 0..az.type_map.types.len() as u16;
-		let mut id_sys = IdentSys::new(az);
+		fn build (&mut self, rf: TypeRef) -> AnalysisResult<TypeID> {
+			if let Some(id) = self.ref_lookup_table.get(&rf) {
+				return Ok(*id)
+			}
+
+			let ty = self.type_map.get(rf);
+
+			let id = match ty {
+				TypeEntry::Existing(id) => self.copy_existing(*id)?,
+
+				TypeEntry::Redirect(inner) => self.build(*inner)?,
+
+				TypeEntry::Undefined => unreachable!(),
+
+				TypeEntry::New(ty) => {
+					let new_id = id_or_err!(self.new_registry.pre_register_type());
+
+					self.ref_lookup_table.insert(rf, new_id);
+
+					match ty {
+						Ty::Array(elem_ref) => {
+							let elem_id = self.build(*elem_ref)?;
+
+							unsafe { self.new_registry.define_type_unchecked(new_id, TypeInfo::Array(elem_id)) }
+						}
+
+						Ty::Map(key_ref, value_ref) => {
+							let key_id = self.build(*key_ref)?;
+							let value_id = self.build(*value_ref)?;
+
+							unsafe { self.new_registry.define_type_unchecked(new_id, TypeInfo::Map(key_id, value_id)) }
+						}
+
+						Ty::Function(param_refs, result_ref) => {
+							let parameter_types = param_refs.iter().map(|r| self.build(*r)).try_collect_vec()?;
+							let return_type = if let Some(r) = result_ref { Some(self.build(*r)?) } else { None };
+
+							unsafe { self.new_registry.define_type_unchecked(new_id, TypeInfo::Function {
+								kind: FunctionKind::Free,
+								return_type,
+								parameter_types
+							}) }
+						}
+
+						Ty::Record(field_names, field_refs) => {
+							let field_names = field_names.clone();
+							let field_types = field_refs.iter().map(|rf| self.build(*rf)).try_collect_vec()?;
+							
+							unsafe { self.new_registry.define_type_unchecked (new_id, TypeInfo::Record {
+								field_names,
+								field_types
+							}) }
+						}
+					}
+
+					return Ok(new_id)
+				}
+			};
+
+			self.ref_lookup_table.insert(rf, id);
+
+			Ok(id)
+		}
+	}
+
+
+	fn build (az: &mut Analyzer) -> AnalysisResult<(TypeRegistry, HashMap<TypeRef, TypeID>)> {
+		let range = az.type_map.ref_iter();
+		let mut id_sys = Builder::new(az);
 		
-		for i in range {
-			let ty_ref = TypeRef(i);
-
-			id_sys.identify_type(ty_ref)?;
+		for ty_ref in range {
+			id_sys.build(ty_ref)?;
 		}
 
 		Ok((
@@ -832,7 +848,8 @@ fn finalize_types (az: &mut Analyzer) -> AnalysisResult {
 	}
 
 
-	fn compare_tinfo (
+
+	fn compare (
 		a_registry: &TypeRegistry,
 		b_registry: &TypeRegistry,
 		comparison_stack: &mut Vec<(TypeID, TypeID)>,
@@ -850,11 +867,11 @@ fn finalize_types (az: &mut Analyzer) -> AnalysisResult {
 			=> a == b,
 
 			(TypeInfo::Array(a), TypeInfo::Array(b))
-			=> compare_tinfo(a_registry, b_registry, comparison_stack, *a, *b),
+			=> compare(a_registry, b_registry, comparison_stack, *a, *b),
 
 			(TypeInfo::Map(ak, av), TypeInfo::Map(bk, bv))
-			=> compare_tinfo(a_registry, b_registry, comparison_stack, *ak, *bk)
-			&& compare_tinfo(a_registry, b_registry, comparison_stack, *av, *bv),
+			=> compare(a_registry, b_registry, comparison_stack, *ak, *bk)
+			&& compare(a_registry, b_registry, comparison_stack, *av, *bv),
 
 			(TypeInfo::Userdata(a), TypeInfo::Userdata(b))
 			=> a == b,
@@ -862,16 +879,16 @@ fn finalize_types (az: &mut Analyzer) -> AnalysisResult {
 			(TypeInfo::Record { field_types: a_field_types, field_names: a_field_names }
 			,TypeInfo::Record { field_types: b_field_types, field_names: b_field_names })
 			=> a_field_names == b_field_names
-			&& compare_tinfo_n(a_registry, b_registry, comparison_stack, a_field_types, b_field_types),
+			&& compare_n(a_registry, b_registry, comparison_stack, a_field_types, b_field_types),
 			
 			(TypeInfo::Function { kind: a_kind, return_type: a_return_type, parameter_types: a_parameter_types }
 			,TypeInfo::Function { kind: b_kind, return_type: b_return_type, parameter_types: b_parameter_types })
 			=> a_kind == b_kind
 			&& match (a_return_type, b_return_type) {
-				(Some(a), Some(b)) => compare_tinfo(a_registry, b_registry, comparison_stack, *a, *b),
+				(Some(a), Some(b)) => compare(a_registry, b_registry, comparison_stack, *a, *b),
 				_ => false
 			}
-			&& compare_tinfo_n(a_registry, b_registry, comparison_stack, a_parameter_types, b_parameter_types),
+			&& compare_n(a_registry, b_registry, comparison_stack, a_parameter_types, b_parameter_types),
 			
 			_ => false
 		};
@@ -881,27 +898,28 @@ fn finalize_types (az: &mut Analyzer) -> AnalysisResult {
 		res
 	}
 
-	fn compare_tinfo_n (
+	fn compare_n (
 		a_registry: &TypeRegistry,
 		b_registry: &TypeRegistry,
 		comparison_stack: &mut Vec<(TypeID, TypeID)>,
 		a: &[TypeID], b: &[TypeID]
 	) -> bool {
 		for (a, b) in a.iter().zip(b.iter()) {
-			if !compare_tinfo(a_registry, b_registry, comparison_stack, *a, *b) { return false }
+			if !compare(a_registry, b_registry, comparison_stack, *a, *b) { return false }
 		}
 
 		true
 	}
+	
 
 
-	fn fold_identities (in_registry: TypeRegistry, out_registry: &mut TypeRegistry, map: &mut HashMap<TypeRef, TypeID>) -> AnalysisResult {
+	fn merge (in_registry: TypeRegistry, out_registry: &mut TypeRegistry, map: &mut HashMap<TypeRef, TypeID>) -> AnalysisResult {
 		let mut comparison_stack = Vec::<(TypeID, TypeID)>::default();
 		let mut copied = HashMap::default();
 
 		'map: for a in map.values_mut() {
 			for b in out_registry.id_iter() {
-				if compare_tinfo(&in_registry, &out_registry, &mut comparison_stack, *a, b) {
+				if compare(&in_registry, &out_registry, &mut comparison_stack, *a, b) {
 					copied.insert(*a, b);
 
 					*a = b;
@@ -910,20 +928,25 @@ fn finalize_types (az: &mut Analyzer) -> AnalysisResult {
 				}
 			}
 
-			*a = copy_tinfo(&in_registry, out_registry, &mut copied, *a)?;
+			*a = copy(&in_registry, out_registry, &mut copied, *a)?;
 		}
 
 		Ok(())
 	}
 
 
-	let (intermediate_registry, mut map) = identify_types(az)?;
-	
-	fold_identities(intermediate_registry, &mut az.ctx.types, &mut map)?;
 
-	for (rf, id) in map.into_iter() {
-		*az.type_map.get_mut(rf) = TypeEntry::Existing(id)
+	pub fn finalize_types (az: &mut Analyzer) -> AnalysisResult {
+		let (intermediate_registry, mut map) = build(az)?;
+		
+		merge(intermediate_registry, &mut az.ctx.types, &mut map)?;
+
+		for (rf, id) in map.into_iter() {
+			*az.type_map.get_mut(rf) = TypeEntry::Existing(id)
+		}
+
+		Ok(())
 	}
-
-	Ok(())
 }
+
+use finalization::finalize_types;
