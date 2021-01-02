@@ -34,7 +34,7 @@ pub enum ModuleBinding {
 }
 
 /// Binds types and globals declared by a script
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Module {
 	globals: Vec<Value>,
 	bindings: HashMap<String, ModuleBinding>
@@ -119,7 +119,7 @@ impl Module {
 
 
 /// Stores modules
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct ModuleRegistry {
 	modules: Vec<Module>,
 	module_names: HashMap<String, ModuleID>,

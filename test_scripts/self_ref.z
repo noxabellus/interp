@@ -1,0 +1,9 @@
+type foo: record {
+  value: int,
+  next: foo
+}
+
+type bar: record {
+  value: int,
+  next: bar
+}

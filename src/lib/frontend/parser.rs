@@ -91,7 +91,7 @@ impl<'src> Parser<'src> {
 	}
 }
 
-/// Display wrapper for formatting parser errors, produced by `Parser::display_error`
+/// Display wrapper for formatting parser errors, produced by `ParseErr::display`
 pub struct ParseErrDisplay<'f>(&'f str, ParseErr);
 
 impl<'f> fmt::Display for ParseErrDisplay<'f> {
@@ -1096,7 +1096,7 @@ fn conditional<'src> (it: &mut Parser<'src>) -> ParseResult<Conditional<'src>> {
 mod item {
 	use super::*;
 
-	pub fn global<'src> (it: &mut Parser<'src>) -> ParseResult<Item<'src>> {
+	fn global<'src> (it: &mut Parser<'src>) -> ParseResult<Item<'src>> {
 		let (_, loc) = soft_unwrap!(keyword(it, Global));
 		let (name, _) = unwrap!(identifier_raw(it), it.problem("Expected name for global declaration"));
 
@@ -1113,7 +1113,7 @@ mod item {
 		Value(build_node(ItemData::Global(name, ty, init), loc))
 	}
 	
-	pub fn function<'src> (it: &mut Parser<'src>) -> ParseResult<Item<'src>> {
+	fn function<'src> (it: &mut Parser<'src>) -> ParseResult<Item<'src>> {
 		let (_, loc) = soft_unwrap!(keyword(it, Function));
 		let (name, _) = unwrap!(identifier_raw(it), it.problem("Expected name for function declaration"));
 		let content = unwrap!(function_content(it, loc), it.problem("Expected body for function declaration"));
@@ -1121,7 +1121,7 @@ mod item {
 		Value(build_node(ItemData::Function(name, content), loc))
 	}
 	
-	pub fn r#type<'src> (it: &mut Parser<'src>) -> ParseResult<Item<'src>> {
+	fn r#type<'src> (it: &mut Parser<'src>) -> ParseResult<Item<'src>> {
 		let (_, loc) = soft_unwrap!(keyword(it, Type));
 		let (name, _) = unwrap!(identifier_raw(it), it.problem("Expected name for type alias"));
 
@@ -1132,7 +1132,7 @@ mod item {
 		Value(build_node(ItemData::Type(name, ty), loc))
 	}
 	
-	pub fn import<'src> (it: &mut Parser<'src>) -> ParseResult<Item<'src>> {
+	fn import<'src> (it: &mut Parser<'src>) -> ParseResult<Item<'src>> {
 		let (_, loc) = soft_unwrap!(keyword(it, Import));
 		let (name, _) = unwrap!(identifier_raw(it), it.problem("Expected name of module to import"));
 
@@ -1146,7 +1146,7 @@ mod item {
 		Value(build_node(ItemData::Import(name, sub), loc))
 	}
 	
-	pub fn export<'src> (it: &mut Parser<'src>) -> ParseResult<Item<'src>> {
+	fn export<'src> (it: &mut Parser<'src>) -> ParseResult<Item<'src>> {
 		let (_, loc) = soft_unwrap!(keyword(it, Export));
 		let exp = unwrap!(item(it), it.problem("Expected item for export"));
 

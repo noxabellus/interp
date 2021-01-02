@@ -7,6 +7,7 @@ pub mod stack;
 pub mod instruction;
 pub mod global;
 pub mod module;
+pub mod context;
 
 pub use self::{
 	value::Value,
@@ -14,6 +15,7 @@ pub use self::{
 	typeinfo::{ TypeRegistry, TypeID, TypeInfo, },
 	global::{ GlobalRegistry, GlobalID, },
 	module::{ ModuleRegistry, ModuleID, Module },
+	context::Context,
 };
 
 
@@ -42,20 +44,4 @@ pub struct Fiber {
 }
 
 
-/// Contains shared contextual information for all VM Fibers
-#[derive(Default)]
-pub struct Context {
-	/// Storage for all types in the VM
-	pub types: TypeRegistry,
-	/// Storage for all modules in the VM
-	pub modules: ModuleRegistry,
-}
-
-
-impl Context {
-	/// Create a new Context
-	pub fn new () -> Self {
-		Self { .. Default::default() }
-	}
-}
 

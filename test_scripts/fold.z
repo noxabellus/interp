@@ -1,0 +1,12 @@
+type xfoo: record { value: int }
+type xbar: record { value: int }
+
+type yfoo: record {
+  value: int,
+  next: yfoo
+}
+
+type ybar: record {
+  value: int,
+  next: ybar
+}

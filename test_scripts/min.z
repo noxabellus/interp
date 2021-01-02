@@ -1,0 +1,2 @@
+type foo: record { value: int }
+type bar: record { value: int }

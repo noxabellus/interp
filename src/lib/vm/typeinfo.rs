@@ -1,11 +1,9 @@
 //! Contains information and ids related to types
 use std::{
 	mem::{ transmute },
-	hash::{ Hash, Hasher },
-	collections::{ HashMap, hash_map::DefaultHasher },
+	hash::{ Hash },
 };
 
-use macros::unchecked_destructure;
 use macros::static_assert;
 use super::value::TypeDiscriminator;
 
@@ -139,10 +137,10 @@ pub enum TypeInfo {
 	Primitive(PrimitiveType),
 	/// A named type representing a collection of values of various types
 	Record {
-		/// The types associated with each field
-		field_types: Vec<TypeID>,
 		/// The names associated with each field
 		field_names: Vec<String>,
+		/// The types associated with each field
+		field_types: Vec<TypeID>,
 	},
 	/// A contiguous series of values of the same type
 	Array(TypeID),
@@ -152,23 +150,20 @@ pub enum TypeInfo {
 	Function {
 		/// Indicates whether a function is a native function or if it is internal to the VM, whether it is a free function or a closure
 		kind: FunctionKind,
-		/// The type of value, if any, returned by a function
-		return_type: Option<TypeID>,
 		/// The type of each parameter passed to a function, if any
 		parameter_types: Vec<TypeID>,
+		/// The type of value, if any, returned by a function
+		return_type: Option<TypeID>,
 	},
 	/// A named type representing a native value
 	Userdata(String),
 }
 
-/// Stores TypeInfo and provides association to unique TypeIDs for each type
+
+/// Stores TypeInfo and provides association to TypeIDs for each type
+#[derive(Debug)]
 pub struct TypeRegistry {
-	info: Vec<TypeInfo>,
-	records: Vec<(u64, TypeID)>,
-	arrays: HashMap<TypeID, TypeID>,
-	maps: HashMap<(TypeID, TypeID), TypeID>,
-	functions: Vec<(u64, TypeID)>,
-	userdata: Vec<(u64, TypeID)>,
+	info: Vec<TypeInfo>
 }
 
 
@@ -206,38 +201,84 @@ impl TypeRegistry {
 	// Though the length is useful information, a properly-created TypeRegistry is never empty because of builtins
 	#![allow(clippy::clippy::len_without_is_empty)]
 
+	// TODO unpub
+	#![allow(missing_docs)]
+
 	/// Create a new TypeRegistry and initialize it with builtin types
 	pub fn new () -> Self {
-		let mut out = Self { .. Default::default() };
+		let mut out = Self {
+			info: Vec::default(),
+		};
 
 		out.load_builtins();
 
 		out
 	}
 
-	fn load_builtins (&mut self) {
+	pub fn load_builtins (&mut self) {
 		for builtin in BUILTIN_TYPEINFO {
 			self.register_type(builtin.clone());
 		}
 	}
 
-	fn register_type (&mut self, info: TypeInfo) -> Option<TypeID> {
+	pub fn id_iter (&self) -> std::iter::Map<std::ops::Range<u16>, impl FnMut(u16) -> TypeID> {
+		(0..self.len() as u16).into_iter().map(TypeID)
+	}
+
+	pub fn iter (&self) -> std::slice::Iter<TypeInfo> {
+		self.info.iter()
+	}
+
+	fn next_id (&mut self) -> Option<TypeID> {
 		let idx = self.info.len();
 		if idx >= TypeID::MAX_TYPES { return None }
+		Some(TypeID(idx as _)) 
+	}
 
+	pub fn pre_register_type (&mut self) -> Option<TypeID> {
+		let id = self.next_id()?;
+		self.info.push(TypeInfo::Primitive(PrimitiveType::Nil));
+		Some(id)
+	}
+
+	pub fn find_type (&self, info: &TypeInfo) -> Option<TypeID> {
+		for (idx, existing_info) in self.info.iter().enumerate() {
+			if existing_info == info {
+				return Some(TypeID(idx as _))
+			}
+		}
+
+		None
+	}
+
+	/// # Panics
+	/// Panics if the given preregistered ID is already defined or invalid,
+	/// or if the info provided is already registered to another ID
+	#[track_caller]
+	pub fn define_type (&mut self, pre_registered_id: TypeID, info: TypeInfo) {
+		assert!(self.find_type(&info).is_none());
+		assert!(pre_registered_id.0 > 0);
+		let r = self.info.get_mut(pre_registered_id.0 as usize).unwrap();
+		assert!(matches!(r, TypeInfo::Primitive(PrimitiveType::Nil)));
+		*r = info;
+	}
+
+	/// # Safety
+	/// This does not perform any checks to ensure that the given `pre_registered_id` is okay to write to
+	pub unsafe fn define_type_unchecked (&mut self, pre_registered_id: TypeID, info: TypeInfo) {
+		*self.info.get_unchecked_mut(pre_registered_id.0 as usize) = info;
+	}
+
+	pub fn register_type (&mut self, info: TypeInfo) -> Option<TypeID> {
+		if let Some(existing_id) = self.find_type(&info) {
+			return Some(existing_id)
+		}
+
+		let id = self.next_id()?;
 		self.info.push(info);
-
-		Some(TypeID(idx as _))
+		Some(id)
 	}
 
-	fn register_type_with <F: FnOnce () -> TypeInfo> (&mut self, f: F) -> Option<TypeID> {
-		let idx = self.info.len();
-		if idx >= TypeID::MAX_TYPES { return None }
-
-		self.info.push(f());
-
-		Some(TypeID(idx as _))
-	}
 
 	/// Get TypeInfo from a TypeID
 	/// # Safety
@@ -260,215 +301,6 @@ impl TypeRegistry {
 	pub const fn primitive_id (&self, prim: PrimitiveType) -> TypeID {
 		TypeID::from_primitive(prim)
 	}
-
-	/// Create a new Userdata type
-	/// 
-	/// Returns None if:
-	/// + A Userdata type with the given name already exists
-	/// + There are already `TypeID::MAX_TYPES` types registered but a new one needs to be created
-	pub fn create_userdata (&mut self, name: &str) -> Option<TypeID> {
-		let in_name = name;
-
-		let mut hasher = DefaultHasher::default();
-		in_name.hash(&mut hasher);
-		let in_hash = hasher.finish();
-
-		for &(existing_hash, existing_id) in self.userdata.iter() {
-			if in_hash != existing_hash { continue }
-			
-			// SAFETY:
-			// 1. types are never deleted, so any id inserted into self.functions will be a valid index in self.info
-			// 2. only function ids are stored in the functions array, so existing_info will never be anything but a function
-			unsafe { unchecked_destructure!(
-				self.info.get_unchecked(existing_id.0 as usize),
-				TypeInfo::Userdata(existing_name)
-				=> if in_name == existing_name {
-					return Some(existing_id)
-				} else {
-					continue
-				}
-			) }
-		}
-
-		let new_id = self.register_type_with(|| TypeInfo::Userdata(name.to_owned()))?;
-		self.userdata.push((in_hash, new_id));
-		
-		Some(new_id)
-	}
-	
-	/// Find a Userdata type by name, if one exists
-	pub fn find_userdata (&self, name: &str) -> Option<TypeID> {
-		let in_name = name;
-
-		let mut hasher = DefaultHasher::default();
-		in_name.hash(&mut hasher);
-		let in_hash = hasher.finish();
-
-		for &(existing_hash, existing_id) in self.userdata.iter() {
-			if in_hash != existing_hash { continue }
-			
-			// SAFETY:
-			// 1. types are never deleted, so any id inserted into self.functions will be a valid index in self.info
-			// 2. only function ids are stored in the functions array, so existing_info will never be anything but a function
-			unsafe { unchecked_destructure!(
-				self.info.get_unchecked(existing_id.0 as usize),
-				TypeInfo::Userdata(existing_name)
-				=> if in_name == existing_name {
-					return Some(existing_id)
-				} else {
-					continue
-				}
-			) }
-		}
-
-		None
-	}
-
-	/// Create a new Record type
-	///
-	/// Returns `None` if there are already `TypeID::MAX_TYPES` types registered but a new one needs to be created
-	pub fn create_record (&mut self, field_types: &[TypeID], field_names: &[String]) -> Option<TypeID> {
-		let (in_field_types, in_field_names) = (field_types, field_names);
-
-		let mut hasher = DefaultHasher::default();
-
-		in_field_types.hash(&mut hasher);
-		in_field_names.hash(&mut hasher);
-
-		let in_hash = hasher.finish();
-
-		for &(existing_hash, existing_id) in self.records.iter() {
-			if existing_hash == in_hash {
-				// SAFETY:
-				// 1. types are never deleted, so any id inserted into self.records will be a valid index in self.info
-				// 2. only record ids are stored in the records array, so existing_info will never be anything but a record
-				unsafe { unchecked_destructure!(
-					self.info.get_unchecked(existing_id.0 as usize), 
-					TypeInfo::Record { field_types, field_names, .. }
-					=> if field_types.as_slice() == in_field_types
-					&& field_names.as_slice() == in_field_names {
-						return Some(existing_id)
-					}
-				) }
-			}
-		}
-		
-		let new_id = self.register_type_with(|| TypeInfo::Record { field_types: field_types.to_owned(), field_names: field_names.to_owned() })?;
-		self.records.push((in_hash, new_id));
-
-		Some(new_id)
-	}
-
-	/// Get an id for an anonymous array type, returns an existing id if one exists or creates a new one if necessary
-	///
-	/// Returns `None` if there are already `TypeID::MAX_TYPES` types registered but a new one needs to be created
-	pub fn create_array (&mut self, elem_type: TypeID) -> Option<TypeID> {
-		Some(if let Some(&existing_id) = self.arrays.get(&elem_type) {
-			existing_id
-		} else {
-			let new_id = self.register_type(TypeInfo::Array(elem_type))?;
-			self.arrays.insert(elem_type, new_id);
-
-			new_id
-		})
-	}
-
-	/// Get an id for an anonymous map type, returns an existing id if one exists or creates a new one if necessary
-	///
-	/// Returns `None` if there are already `TypeID::MAX_TYPES` types registered but a new one needs to be created
-	pub fn create_map (&mut self, key_type: TypeID, value_type: TypeID) -> Option<TypeID> {
-		Some(if let Some(&existing_id) = self.maps.get(&(key_type, value_type)) {
-			existing_id
-		} else {
-			let new_id = self.register_type(TypeInfo::Map(key_type, value_type))?;
-			self.maps.insert((key_type, value_type), new_id);
-
-			new_id
-		})
-	}
-
-	/// Get an id for an anonymous function type, returns an existing id if one exists or creates a new one if necessary
-	///
-	/// Returns `None` if there are already `TypeID::MAX_TYPES` types registered but a new one needs to be created
-	pub fn create_function (&mut self, kind: FunctionKind, return_type: Option<TypeID>, parameter_types: &[TypeID]) -> Option<TypeID> {
-		let (in_kind, in_return_type, in_parameter_types) = (&kind, &return_type, parameter_types);
-
-		let mut hasher = DefaultHasher::default();
-
-		in_kind.hash(&mut hasher);
-		in_return_type.hash(&mut hasher);
-		in_parameter_types.hash(&mut hasher);
-
-		let in_hash = hasher.finish();
-
-		for &(existing_hash, existing_id) in self.functions.iter() {
-			if in_hash != existing_hash { continue }
-
-			// SAFETY:
-			// 1. types are never deleted, so any id inserted into self.functions will be a valid index in self.info
-			// 2. only function ids are stored in the functions array, so existing_info will never be anything but a function
-			unsafe { unchecked_destructure!(
-				self.info.get_unchecked(existing_id.0 as usize),
-				TypeInfo::Function { kind, return_type, parameter_types }
-				=> if kind == in_kind
-				&& return_type == in_return_type
-				&& parameter_types.as_slice() == in_parameter_types {
-					return Some(existing_id)
-				} else {
-					continue
-				}
-			) }
-		}
-
-		let new_id = self.register_type_with(|| TypeInfo::Function { kind, return_type, parameter_types: parameter_types.to_owned() })?;
-		self.functions.push((in_hash, new_id));
-
-		Some(new_id)
-	}
 }
 
 impl Default for TypeRegistry { fn default () -> Self { Self::new() } }
-
-
-/// Allows generic passing of unowned representations of types to be registered and converted to owned equivalents if necessary
-pub trait RegisterableAsType {
-	/// Register this as a type in a TypeRegistry
-	fn register_as_type (self, registry: &mut TypeRegistry) -> Option<TypeID>;
-}
-
-
-impl RegisterableAsType for PrimitiveType {
-	fn register_as_type (self, _: &mut TypeRegistry) -> Option<TypeID> {
-		Some(TypeID::from_primitive(self))
-	}
-}
-
-impl RegisterableAsType for &str {
-	fn register_as_type (self, registry: &mut TypeRegistry) -> Option<TypeID> {
-		registry.create_userdata(self)
-	}
-}
-
-impl RegisterableAsType for (TypeID,) {
-	fn register_as_type (self, registry: &mut TypeRegistry) -> Option<TypeID> {
-		registry.create_array(self.0)
-	}
-}
-
-impl RegisterableAsType for (TypeID, TypeID) {
-	fn register_as_type (self, registry: &mut TypeRegistry) -> Option<TypeID> {
-		registry.create_map(self.0, self.1)
-	}
-}
-
-impl RegisterableAsType for (&[TypeID], &[String]) {
-	fn register_as_type (self, registry: &mut TypeRegistry) -> Option<TypeID> {
-		registry.create_record(self.0, self.1)
-	}
-}
-
-impl RegisterableAsType for (FunctionKind, Option<TypeID>, &[TypeID]) {
-	fn register_as_type (self, registry: &mut TypeRegistry) -> Option<TypeID> {
-		registry.create_function(self.0, self.1, self.2)
-	}
-}

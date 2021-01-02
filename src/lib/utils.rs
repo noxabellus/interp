@@ -377,24 +377,86 @@ where T: PartialEq
 }
 
 /// Allows finding the index of an element in a Vec, using a closure callback
-pub trait VecFind {
+pub trait SliceFind {
 	/// The type of value to be located in a Vec by index_of
 	type Item;
 
 	/// Try to find the index of an element in a Vec.
 	/// Returns None if the element was not found
-	fn find<F: FnMut (&Self::Item) -> bool> (&self, f: F) -> Option<usize>;
+	fn find_index<F: FnMut (&Self::Item) -> bool> (&self, f: F) -> Option<usize>;
+
+	/// Try to find an element in a Vec, and return a reference to it
+	/// Returns None if the element was not found
+	fn find<F: FnMut (&Self::Item) -> bool> (&self, f: F) -> Option<&Self::Item>;
+
+	/// Try to find an element in a Vec, and return a mutable reference to it
+	/// Returns None if the element was not found
+	fn find_mut<F: FnMut (&Self::Item) -> bool> (&mut self, f: F) -> Option<&mut Self::Item>;
 }
 
-impl<T> VecFind for Vec<T>
+impl<T> SliceFind for [T]
 {
 	type Item = T;
 
-	fn find<F: FnMut (&T) -> bool> (&self, mut f: F) -> Option<usize> {
+	fn find_index<F: FnMut (&T) -> bool> (&self, mut f: F) -> Option<usize> {
 		for (idx, elem) in self.iter().enumerate() {
 			if f(elem) { return Some(idx) }
 		}
 
 		None
+	}
+
+	fn find<F: FnMut (&T) -> bool> (&self, mut f: F) -> Option<&T> {
+		for elem in self.iter() {
+			if f(elem) { return Some(elem) }
+		}
+
+		None
+	}
+
+	fn find_mut<F: FnMut (&T) -> bool> (&mut self, mut f: F) -> Option<&mut T> {
+		for elem in self.iter_mut() {
+			if f(elem) { return Some(elem) }
+		}
+
+		None
+	}
+}
+
+pub trait TryCollectVec<R>: Iterator {
+	fn try_collect_vec (self) -> R;
+}
+
+impl<I, R, E> TryCollectVec<Result<Vec<R>, E>> for I
+where I: Iterator<Item = Result<R, E>>
+{
+	fn try_collect_vec(self) -> Result<Vec<R>, E> {
+		let mut out = vec![];
+
+		for item in self {
+			match item {
+				Ok(v) => out.push(v),
+				Err(e) => return Err(e)
+			}
+		}
+
+		Ok(out)
+	}
+}
+
+impl<I, R> TryCollectVec<Option<Vec<R>>> for I
+where I: Iterator<Item = Option<R>>
+{
+	fn try_collect_vec(self) -> Option<Vec<R>> {
+		let mut out = vec![];
+
+		for item in self {
+			match item {
+				Some(v) => out.push(v),
+				None => return None
+			}
+		}
+
+		Some(out)
 	}
 }
