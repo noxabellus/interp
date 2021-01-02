@@ -1,5 +1,7 @@
 //! Contains the universal Value implementation
 
+#![allow(clippy::unusual_byte_groupings,)]
+
 use std::{
 	hash::{ Hash, Hasher },
 	cmp::Ordering,
@@ -7,7 +9,7 @@ use std::{
 };
 
 use super::{
-	object,
+	object::{ self, FnCastable, FnCastMut, FunctionKind },
 	typeinfo::TypeID,
 };
 
@@ -36,10 +38,8 @@ pub enum TypeDiscriminator {
 	Map = tdb!(1),
 	String = tdb!(2),
 	Function = tdb!(3),
-	// Closure = tdb!(4),
 
-	Userdata = tdb!(5),
-	// Foreign = tdb!(6),
+	Userdata = tdb!(4),
 }
 
 
@@ -58,9 +58,7 @@ impl Display for TypeDiscriminator {
 			Self::Map => "Map",
 			Self::String => "String",
 			Self::Function => "Function",
-			// Self::Closure => "Closure",
 			Self::Userdata => "Userdata",
-			// Self::Foreign => "Foreign",
 		})
 	}
 }
@@ -163,14 +161,17 @@ mod internal {
 		/// Determine if a Value is of type `Function`
 		pub const fn is_function (&self) -> bool { self.is_td(TypeDiscriminator::Function) }
 
-		// /// Determine if a Value is of type `Closure`
-		// pub const fn is_closure (&self) -> bool { self.is_td(TypeDiscriminator::Closure) }
+		/// Determine if a Value is of *subtype* `Closure`
+		pub fn is_procedure (&self) -> bool { self.as_function().map(|p| FnCastable::get_kind(p) == FunctionKind::Procedure).unwrap_or(false) }
+
+		/// Determine if a Value is of *subtype* `Closure`
+		pub fn is_closure (&self) -> bool { self.as_function().map(|p| FnCastable::get_kind(p) == FunctionKind::Closure).unwrap_or(false) }
+		
+		/// Determine if a Value is of *subtype* `Foreign`
+		pub fn is_foreign (&self) -> bool { self.as_function().map(|p| FnCastable::get_kind(p) == FunctionKind::Foreign).unwrap_or(false) }
 
 		/// Determine if a Value is of type `Userdata`
 		pub const fn is_userdata (&self) -> bool { self.is_td(TypeDiscriminator::Userdata) }
-
-		// /// Determine if a Value is of type `Foreign`
-		// pub const fn is_foreign (&self) -> bool { self.is_td(TypeDiscriminator::Foreign) }
 
 
 		/// Extract the internal `Real` in a Value
@@ -223,20 +224,25 @@ mod internal {
 		/// Does not check that the Value actually contains the designated type
 		pub unsafe fn as_function_unchecked (&self) -> *mut object::Function { self.get_data_segment() as _ }
 
-		// /// Extract the internal `Closure` in a Value
-		// /// # Safety
-		// /// Does not check that the Value actually contains the designated type
-		// pub unsafe fn as_closure_unchecked (&self) -> *mut object::Closure { self.get_data_segment() as _ }
+		/// Extract the internal `Closure` in a Value
+		/// # Safety
+		/// Does not check that the Value actually contains the designated type
+		pub unsafe fn as_procedure_unchecked (&self) -> *mut object::Procedure { self.as_function_unchecked() as _ }
 
+		/// Extract the internal `Closure` in a Value
+		/// # Safety
+		/// Does not check that the Value actually contains the designated type
+		pub unsafe fn as_closure_unchecked (&self) -> *mut object::Closure { self.as_function_unchecked() as _ }
+		
+		/// Extract the internal `Foreign` in a Value
+		/// # Safety
+		/// Does not check that the Value actually contains the designated type
+		pub unsafe fn as_foreign_unchecked (&self) -> *mut object::Foreign { self.as_function_unchecked() as _ }
+		
 		/// Extract the internal `Userdata` in a Value
 		/// # Safety
 		/// Does not check that the Value actually contains the designated type
 		pub unsafe fn as_userdata_unchecked (&self) -> *mut object::Userdata { self.get_data_segment() as _ }
-
-		// /// Extract the internal `Foreign` in a Value
-		// /// # Safety
-		// /// Does not check that the Value actually contains the designated type
-		// pub unsafe fn as_foreign_unchecked (&self) -> *mut object::Foreign { self.get_data_segment() as _ }
 
 
 		/// Extract the internal `Real` in a Value
@@ -269,14 +275,17 @@ mod internal {
 		/// Extract the internal `Function` in a Value
 		pub fn as_function (&self) -> Option<*mut object::Function> { if self.is_function() { Some(unsafe { self.as_function_unchecked() }) } else { None } }
 
-		// /// Extract the internal `Closure` in a Value
-		// pub fn as_closure (&self) -> Option<*mut object::Closure> { if self.is_closure() { Some(unsafe { self.as_closure_unchecked() }) } else { None } }
+		/// Extract the internal `Procedure` in a Value
+		pub fn as_procedure (&self) -> Option<*mut object::Procedure> { self.as_function().and_then(FnCastMut::as_procedure_mut) }
+
+		/// Extract the internal `Closure` in a Value
+		pub fn as_closure (&self) -> Option<*mut object::Closure> { self.as_function().and_then(FnCastMut::as_closure_mut) }
+		
+		/// Extract the internal `Foreign` in a Value
+		pub fn as_foreign (&self) -> Option<*mut object::Foreign> { self.as_function().and_then(FnCastMut::as_foreign_mut) }
 
 		/// Extract the internal `Userdata` in a Value
 		pub fn as_userdata (&self) -> Option<*mut object::Userdata> { if self.is_userdata() { Some(unsafe { self.as_userdata_unchecked() }) } else { None } }
-
-		// /// Extract the internal `Foreign` in a Value
-		// pub fn as_foreign (&self) -> Option<*mut object::Foreign> { if self.is_foreign() { Some(unsafe { self.as_foreign_unchecked() }) } else { None } }
 
 
 		/// Create a Value wrapping for data of `Real` type
@@ -361,7 +370,7 @@ mod internal {
 
 	impl Value {
 		/// Get the data portion of a non-real value
-		pub const fn get_data_bits (&self) -> u64 {
+		pub fn get_data_bits (&self) -> u64 {
 			unsafe { self.data.bits }
 		}
 
@@ -410,14 +419,17 @@ mod internal {
 		/// Determine if a Value is of type `Function`
 		pub const fn is_function (&self) -> bool { self.is_td(TypeDiscriminator::Function) }
 
-		// /// Determine if a Value is of type `Closure`
-		// pub const fn is_closure (&self) -> bool { self.is_td(TypeDiscriminator::Closure) }
+		/// Determine if a Value is of *subtype* `Procedure`
+		pub fn is_procedure (&self) -> bool { self.as_function().map(|f| FnCastable::get_kind(f) == FunctionKind::Procedure).unwrap_or(false) }
+
+		/// Determine if a Value is of *subtype* `Closure`
+		pub fn is_closure (&self) -> bool { self.as_function().map(|f| FnCastable::get_kind(f) == FunctionKind::Closure).unwrap_or(false) }
+
+		/// Determine if a Value is of *subtype* `Foreign`
+		pub fn is_foreign (&self) -> bool { self.as_function().map(|f| FnCastable::get_kind(f) == FunctionKind::Foreign).unwrap_or(false) }
 
 		/// Determine if a Value is of type `Userdata`
 		pub const fn is_userdata (&self) -> bool { self.is_td(TypeDiscriminator::Userdata) }
-
-		// /// Determine if a Value is of type `Foreign`
-		// pub const fn is_foreign (&self) -> bool { self.is_td(TypeDiscriminator::Foreign) }
 
 
 		/// Extract the internal `Real` in a Value
@@ -470,20 +482,25 @@ mod internal {
 		/// Does not check that the Value actually contains the designated type
 		pub unsafe fn as_function_unchecked (&self) -> *mut object::Function { self.data.function }
 		
-		// /// Extract the internal `Closure` in a Value
-		// /// # Safety
-		// /// Does not check that the Value actually contains the designated type
-		// pub unsafe fn as_closure_unchecked (&self) -> *mut object::Closure { self.data.closure }
+		/// Extract the internal `Procedure` in a Value
+		/// # Safety
+		/// Does not check that the Value actually contains the designated type
+		pub unsafe fn as_procedure_unchecked (&self) -> *mut object::Procedure { self.data.function as _ }
+		
+		/// Extract the internal `Closure` in a Value
+		/// # Safety
+		/// Does not check that the Value actually contains the designated type
+		pub unsafe fn as_closure_unchecked (&self) -> *mut object::Closure { self.data.function as _ }
+
+		/// Extract the internal `Foreign` in a Value
+		/// # Safety
+		/// Does not check that the Value actually contains the designated type
+		pub unsafe fn as_foreign_unchecked (&self) -> *mut object::Foreign { self.data.function as _ }
 		
 		/// Extract the internal `Userdata` in a Value
 		/// # Safety
 		/// Does not check that the Value actually contains the designated type
 		pub unsafe fn as_userdata_unchecked (&self) -> *mut object::Userdata { self.data.userdata }
-
-		// /// Extract the internal `Foreign` in a Value
-		// /// # Safety
-		// /// Does not check that the Value actually contains the designated type
-		// pub unsafe fn as_foreign_unchecked (&self) -> *mut object::Foreign { self.data.foreign }
 		
 
 		/// Extract the internal `Real` in a Value
@@ -516,14 +533,17 @@ mod internal {
 		/// Extract the internal `Function` in a Value
 		pub fn as_function (&self) -> Option<*mut object::Function> { if self.is_function() { Some(unsafe { self.as_function_unchecked() }) } else { None } }
 
-		// /// Extract the internal `Closure` in a Value
-		// pub fn as_closure (&self) -> Option<*mut object::Closure> { if self.is_closure() { Some(unsafe { self.as_closure_unchecked() }) } else { None } }
+		/// Extract the internal `Procedure` in a Value
+		pub fn as_procedure (&self) -> Option<*mut object::Procedure> { self.as_function().and_then(FnCastMut::as_procedure_mut) }
+
+		/// Extract the internal `Closure` in a Value
+		pub fn as_closure (&self) -> Option<*mut object::Closure> { self.as_function().and_then(FnCastMut::as_closure_mut) }
+		
+		/// Extract the internal `Foreign` in a Value
+		pub fn as_foreign (&self) -> Option<*mut object::Foreign> { self.as_function().and_then(FnCastMut::as_foreign_mut) }
 
 		/// Extract the internal `Userdata` in a Value
 		pub fn as_userdata (&self) -> Option<*mut object::Userdata> { if self.is_userdata() { Some(unsafe { self.as_userdata_unchecked() }) } else { None } }
-
-		// /// Extract the internal `Foreign` in a Value
-		// pub fn as_foreign (&self) -> Option<*mut object::Foreign> { if self.is_foreign() { Some(unsafe { self.as_foreign_unchecked() }) } else { None } }
 
 
 		/// Create a Value wrapping for data of `Real` type
@@ -559,14 +579,17 @@ mod internal {
 		/// Create a Value wrapping for data of `Function` type
 		pub fn from_function (data: *mut object::Function) -> Self { Self { discriminant: TypeDiscriminator::Function, data: ValueData { function: data } } }
 
-		// /// Create a Value wrapping for data of `Closure` type
-		// pub fn from_closure (data: *mut object::Closure) -> Self { Self { discriminant: TypeDiscriminator::Closure, data: ValueData { closure: data } } }
+		/// Create a Value wrapping for data of `Function` type
+		pub fn from_procedure (data: *mut object::Procedure) -> Self { Self::from_function(data as _) }
+
+		/// Create a Value wrapping for data of `Function` type
+		pub fn from_closure (data: *mut object::Closure) -> Self { Self::from_function(data as _) }
+
+		/// Create a Value wrapping for data of `Function` type
+		pub fn from_foreign (data: *mut object::Foreign) -> Self { Self::from_function(data as _) }
 
 		/// Create a Value wrapping for data of `Userdata` type
 		pub fn from_userdata (data: *mut object::Userdata) -> Self { Self { discriminant: TypeDiscriminator::Userdata, data: ValueData { userdata: data } } }
-
-		// /// Create a Value wrapping for data of `Foreign` type
-		// pub fn from_foreign (data: *mut object::Foreign) -> Self { Self { discriminant: TypeDiscriminator::Foreign, data: ValueData { foreign: data } } }
 	}
 }
 

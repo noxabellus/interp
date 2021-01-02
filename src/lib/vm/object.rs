@@ -32,8 +32,8 @@ pub enum ObjectKind {
 /// Component of all Object type variants,
 /// allowing garbage collection and type identification
 #[repr(C)]
-pub struct Header {
-	/// Discriminant for dyncasting Header pointers to object pointers
+pub struct Object {
+	/// Discriminant for dyncasting Object pointers to variant pointers
 	pub kind: ObjectKind,
 	/// Discriminant for the type of the object containing to this header
 	pub type_id: TypeID,
@@ -41,14 +41,10 @@ pub struct Header {
 	pub next: *mut Object,
 }
 
-/// Alias for object::Header to provide more readable signatures.
-/// All Object variants contain a Header as their first field,
-/// so any valid Object pointer is a valid pointer to a variant and vice versa
-pub type Object = Header;
 
 /// Allows casting between generic Object pointers and specific variants.
 /// The only safe implementation of this trait is on *mut/const Object
-pub unsafe trait DynCastable: Sized + Copy {
+pub unsafe trait ObjCastable: Sized + Copy {
 	/// Get the ObjectKind of an Object
 	fn get_kind (self) -> ObjectKind;
 
@@ -58,7 +54,7 @@ pub unsafe trait DynCastable: Sized + Copy {
 
 /// Allows casting between generic Object pointers and specific variants.
 /// The only safe implementation of this trait is on *mut/const Object
-pub unsafe trait DynCast: DynCastable {
+pub unsafe trait ObjCast: ObjCastable {
 	/// Cast an Object pointer to a pointer to a variant
 	/// # Safety
 	/// This does not check the ObjectKind discriminant of the Object header
@@ -84,20 +80,25 @@ pub unsafe trait DynCast: DynCastable {
 	/// This does not check the ObjectKind discriminant of the Object header
 	unsafe fn as_function_unchecked (self) -> *const Function;
 
-	// /// Cast an Object pointer to a pointer to a variant
-	// /// # Safety
-	// /// This does not check the ObjectKind discriminant of the Object header
-	// unsafe fn as_closure_unchecked (self) -> *const Closure;
+	/// Cast an Object pointer to a pointer to a variant
+	/// # Safety
+	/// This does not check the ObjectKind discriminant of the Object header
+	unsafe fn as_procedure_unchecked (self) -> *const Procedure;
+
+	/// Cast an Object pointer to a pointer to a variant
+	/// # Safety
+	/// This does not check the ObjectKind discriminant of the Object header
+	unsafe fn as_closure_unchecked (self) -> *const Closure;
+
+	/// Cast an Object pointer to a pointer to a variant
+	/// # Safety
+	/// This does not check the ObjectKind discriminant of the Object header
+	unsafe fn as_foreign_unchecked (self) -> *const Foreign;
 
 	/// Cast an Object pointer to a pointer to a variant
 	/// # Safety
 	/// This does not check the ObjectKind discriminant of the Object header
 	unsafe fn as_userdata_unchecked (self) -> *const Userdata;
-
-	// /// Cast an Object pointer to a pointer to a variant
-	// /// # Safety
-	// /// This does not check the ObjectKind discriminant of the Object header
-	// unsafe fn as_foreign_unchecked (self) -> *const Foreign;
 
 
 	/// Cast an Object pointer to a pointer to a variant
@@ -114,20 +115,23 @@ pub unsafe trait DynCast: DynCastable {
 
 	/// Cast an Object pointer to a pointer to a variant
 	fn as_function (self) -> Option<*const Function> { if self.get_kind() == ObjectKind::Function { Some(unsafe { self.as_function_unchecked() }) } else { None } }
-
-	// /// Cast an Object pointer to a pointer to a variant
-	// fn as_closure (self) -> Option<*const Closure> { if self.get_kind() == ObjectKind::Closure { Some(unsafe { self.as_closure_unchecked() }) } else { None } }
+	
+	/// Cast an Object pointer to a pointer to a variant
+	fn as_procedure (self) -> Option<*const Procedure> { self.as_function().and_then(FnCast::as_procedure) }
 
 	/// Cast an Object pointer to a pointer to a variant
+	fn as_closure (self) -> Option<*const Closure> { self.as_function().and_then(FnCast::as_closure) }
+	
+	/// Cast an Object pointer to a pointer to a variant
+	fn as_foreign (self) -> Option<*const Foreign> { self.as_function().and_then(FnCast::as_foreign) }
+	
+	/// Cast an Object pointer to a pointer to a variant
 	fn as_userdata (self) -> Option<*const Userdata> { if self.get_kind() == ObjectKind::Userdata { Some(unsafe { self.as_userdata_unchecked() }) } else { None } }
-
-	// /// Cast an Object pointer to a pointer to a variant
-	// fn as_foreign (self) -> Option<*const Foreign> { if self.get_kind() == ObjectKind::Foreign { Some(unsafe { self.as_foreign_unchecked() }) } else { None } }
 }
 
 /// Allows casting between generic Object pointers and specific variants.
 /// The only safe implementation of this trait is on *mut Object
-pub unsafe trait DynCastMut: DynCastable {
+pub unsafe trait ObjCastMut: ObjCastable {
 	/// Cast an Object pointer to a pointer to a variant
 	/// # Safety
 	/// This does not check the ObjectKind discriminant of the Object header
@@ -153,20 +157,25 @@ pub unsafe trait DynCastMut: DynCastable {
 	/// This does not check the ObjectKind discriminant of the Object header
 	unsafe fn as_function_unchecked_mut (self) -> *mut Function;
 
-	// /// Cast an Object pointer to a pointer to a variant
-	// /// # Safety
-	// /// This does not check the ObjectKind discriminant of the Object header
-	// unsafe fn as_closure_unchecked_mut (self) -> *mut Closure;
+	/// Cast an Object pointer to a pointer to a variant
+	/// # Safety
+	/// This does not check the ObjectKind discriminant of the Object header
+	unsafe fn as_procedure_unchecked_mut (self) -> *mut Procedure;
+
+	/// Cast an Object pointer to a pointer to a variant
+	/// # Safety
+	/// This does not check the ObjectKind discriminant of the Object header
+	unsafe fn as_closure_unchecked_mut (self) -> *mut Closure;
+	
+	/// Cast an Object pointer to a pointer to a variant
+	/// # Safety
+	/// This does not check the ObjectKind discriminant of the Object header
+	unsafe fn as_foreign_unchecked_mut (self) -> *mut Foreign;
 
 	/// Cast an Object pointer to a pointer to a variant
 	/// # Safety
 	/// This does not check the ObjectKind discriminant of the Object header
 	unsafe fn as_userdata_unchecked_mut (self) -> *mut Userdata;
-
-	// /// Cast an Object pointer to a pointer to a variant
-	// /// # Safety
-	// /// This does not check the ObjectKind discriminant of the Object header
-	// unsafe fn as_foreign_unchecked_mut (self) -> *mut Foreign;
 
 
 	/// Cast an Object pointer to a pointer to a variant
@@ -184,66 +193,246 @@ pub unsafe trait DynCastMut: DynCastable {
 	/// Cast an Object pointer to a pointer to a variant
 	fn as_function_mut (self) -> Option<*mut Function> { if self.get_kind() == ObjectKind::Function { Some(unsafe { self.as_function_unchecked_mut() }) } else { None } }
 
-	// /// Cast an Object pointer to a pointer to a variant
-	// fn as_closure_mut (self) -> Option<*mut Closure> { if self.get_kind() == ObjectKind::Closure { Some(unsafe { self.as_closure_unchecked_mut() }) } else { None } }
+	/// Cast an Object pointer to a pointer to a variant
+	fn as_procedure_mut (self) -> Option<*mut Procedure> { self.as_function_mut().and_then(FnCastMut::as_procedure_mut) }
+
+	/// Cast an Object pointer to a pointer to a variant
+	fn as_closure_mut (self) -> Option<*mut Closure> { self.as_function_mut().and_then(FnCastMut::as_closure_mut) }
+	
+	/// Cast an Object pointer to a pointer to a variant
+	fn as_foreign_mut (self) -> Option<*mut Foreign> { self.as_function_mut().and_then(FnCastMut::as_foreign_mut) }
 
 	/// Cast an Object pointer to a pointer to a variant
 	fn as_userdata_mut (self) -> Option<*mut Userdata> { if self.get_kind() == ObjectKind::Userdata { Some(unsafe { self.as_userdata_unchecked_mut() }) } else { None } }
-
-	// /// Cast an Object pointer to a pointer to a variant
-	// fn as_foreign_mut (self) -> Option<*mut Foreign> { if self.get_kind() == ObjectKind::Foreign { Some(unsafe { self.as_foreign_unchecked_mut() }) } else { None } }
 }
 
 
-unsafe impl DynCastable for *const Object {
+unsafe impl ObjCastable for *const Object {
 	fn get_kind (self) -> ObjectKind { unsafe { (*self).kind } }
 	fn get_type_id (self) -> TypeID { unsafe { (*self).type_id } }
 }
 
-unsafe impl DynCastable for *mut Object {
+unsafe impl ObjCastable for *mut Object {
 	fn get_kind (self) -> ObjectKind { unsafe { (*self).kind } }
 	fn get_type_id (self) -> TypeID { unsafe { (*self).type_id } }
 }
 
-unsafe impl DynCast for *const Object {
+unsafe impl ObjCast for *const Object {
 	unsafe fn as_array_unchecked (self) -> *const Array { self as _ }
 	unsafe fn as_map_unchecked (self) -> *const Map { self as _ }
 	unsafe fn as_string_unchecked (self) -> *const String { self as _ }
 	unsafe fn as_record_unchecked (self) -> *const Record { self as _ }
 	unsafe fn as_function_unchecked (self) -> *const Function { self as _ }
-	// unsafe fn as_closure_unchecked (self) -> *const Closure { self as _ }
+	unsafe fn as_procedure_unchecked (self) -> *const Procedure { self as _ }
+	unsafe fn as_closure_unchecked (self) -> *const Closure { self as _ }
+	unsafe fn as_foreign_unchecked (self) -> *const Foreign { self as _ }
 	unsafe fn as_userdata_unchecked (self) -> *const Userdata { self as _ }
-	// unsafe fn as_foreign_unchecked (self) -> *const Foreign { self as _ }
 }
 
-unsafe impl DynCast for *mut Object {
+unsafe impl ObjCast for *mut Object {
 	unsafe fn as_array_unchecked (self) -> *const Array { self as _ }
 	unsafe fn as_map_unchecked (self) -> *const Map { self as _ }
 	unsafe fn as_string_unchecked (self) -> *const String { self as _ }
 	unsafe fn as_record_unchecked (self) -> *const Record { self as _ }
 	unsafe fn as_function_unchecked (self) -> *const Function { self as _ }
-	// unsafe fn as_closure_unchecked (self) -> *const Closure { self as _ }
+	unsafe fn as_procedure_unchecked (self) -> *const Procedure { self as _ }
+	unsafe fn as_closure_unchecked (self) -> *const Closure { self as _ }
+	unsafe fn as_foreign_unchecked (self) -> *const Foreign { self as _ }
 	unsafe fn as_userdata_unchecked (self) -> *const Userdata { self as _ }
-	// unsafe fn as_foreign_unchecked (self) -> *const Foreign { self as _ }
 }
 
-unsafe impl DynCastMut for *mut Object {
+unsafe impl ObjCastMut for *mut Object {
 	unsafe fn as_array_unchecked_mut (self) -> *mut Array { self as _ }
 	unsafe fn as_map_unchecked_mut (self) -> *mut Map { self as _ }
 	unsafe fn as_string_unchecked_mut (self) -> *mut String { self as _ }
 	unsafe fn as_record_unchecked_mut (self) -> *mut Record { self as _ }
 	unsafe fn as_function_unchecked_mut (self) -> *mut Function { self as _ }
-	// unsafe fn as_closure_unchecked_mut (self) -> *mut Closure { self as _ }
+	unsafe fn as_procedure_unchecked_mut (self) -> *mut Procedure { self as _ }
+	unsafe fn as_closure_unchecked_mut (self) -> *mut Closure { self as _ }
+	unsafe fn as_foreign_unchecked_mut (self) -> *mut Foreign { self as _ }
 	unsafe fn as_userdata_unchecked_mut (self) -> *mut Userdata { self as _ }
-	// unsafe fn as_foreign_unchecked_mut (self) -> *mut Foreign { self as _ }
 }
+
+/// Allows casting between specific variants and generic Object pointers.
+/// The only safe implementation of this trait is on *mut/const Procedure, Closure and Foreign
+pub unsafe trait IntoObj: Sized + Copy {
+	/// Upcast a variant pointer into a Object pointer
+	fn as_object (self) -> *const Object;
+}
+
+/// Allows casting between specific variants and generic Object pointers.
+/// The only safe implementation of this trait is on *mut Procedure, Closure and Foreign
+pub unsafe trait IntoObjMut: Sized + Copy {
+	/// Upcast a variant pointer into a Object pointer
+	fn as_object_mut (self) -> *mut Object;
+}
+
+unsafe impl IntoObj for *const Array { fn as_object (self) -> *const Object { self as _ } }
+unsafe impl IntoObj for *const Map { fn as_object (self) -> *const Object { self as _ } }
+unsafe impl IntoObj for *const String { fn as_object (self) -> *const Object { self as _ } }
+unsafe impl IntoObj for *const Record { fn as_object (self) -> *const Object { self as _ } }
+unsafe impl IntoObj for *const Function { fn as_object (self) -> *const Object { self as _ } }
+unsafe impl IntoObj for *const Userdata { fn as_object (self) -> *const Object { self as _ } }
+
+unsafe impl IntoObj for *mut Array { fn as_object (self) -> *const Object { self as _ } }
+unsafe impl IntoObj for *mut Map { fn as_object (self) -> *const Object { self as _ } }
+unsafe impl IntoObj for *mut String { fn as_object (self) -> *const Object { self as _ } }
+unsafe impl IntoObj for *mut Record { fn as_object (self) -> *const Object { self as _ } }
+unsafe impl IntoObj for *mut Function { fn as_object (self) -> *const Object { self as _ } }
+unsafe impl IntoObj for *mut Userdata { fn as_object (self) -> *const Object { self as _ } }
+
+unsafe impl IntoObjMut for *mut Array { fn as_object_mut (self) -> *mut Object { self as _ } }
+unsafe impl IntoObjMut for *mut Map { fn as_object_mut (self) -> *mut Object { self as _ } }
+unsafe impl IntoObjMut for *mut String { fn as_object_mut (self) -> *mut Object { self as _ } }
+unsafe impl IntoObjMut for *mut Record { fn as_object_mut (self) -> *mut Object { self as _ } }
+unsafe impl IntoObjMut for *mut Function { fn as_object_mut (self) -> *mut Object { self as _ } }
+unsafe impl IntoObjMut for *mut Userdata { fn as_object_mut (self) -> *mut Object { self as _ } }
+
+
+/// Allows casting between generic Function pointers and specific variants.
+/// The only safe implementation of this trait is on *mut Function
+pub unsafe trait FnCastable: Sized + Copy {
+	/// Allows casting between generic Function pointers and specific variants.
+	/// The only safe implementation of this trait is on *mut/const Function
+
+	/// Get the FunctionKind of a Function
+	fn get_kind (self) -> FunctionKind;
+
+	/// Get the TypeID of a Function
+	fn get_type_id (self) -> TypeID;
+}
+
+/// Allows casting between generic Function pointers and specific variants.
+/// The only safe implementation of this trait is on *mut/const Function
+pub unsafe trait FnCast: FnCastable {
+	/// Upcast a Function to an Object
+	fn as_object (self) -> *const Object;
+
+	/// Cast a Function pointer to a pointer to a variant
+	/// # Safety
+	/// This does not check the FunctionKind discriminant of the Function header
+	unsafe fn as_procedure_unchecked (self) -> *const Procedure;
+
+	/// Cast a Function pointer to a pointer to a variant
+	/// # Safety
+	/// This does not check the FunctionKind discriminant of the Function header
+	unsafe fn as_closure_unchecked (self) -> *const Closure;
+
+	/// Cast a Function pointer to a pointer to a variant
+	/// # Safety
+	/// This does not check the FunctionKind discriminant of the Function header
+	unsafe fn as_foreign_unchecked (self) -> *const Foreign;
+
+	/// Cast a Function pointer to a pointer to a variant
+	fn as_procedure (self) -> Option<*const Procedure> { if self.get_kind() == FunctionKind::Procedure { Some(unsafe { self.as_procedure_unchecked() }) } else { None } }
+
+	/// Cast a Function pointer to a pointer to a variant
+	fn as_closure (self) -> Option<*const Closure> { if self.get_kind() == FunctionKind::Closure { Some(unsafe { self.as_closure_unchecked() }) } else { None } }
+	
+	/// Cast a Function pointer to a pointer to a variant
+	fn as_foreign (self) -> Option<*const Foreign> { if self.get_kind() == FunctionKind::Foreign { Some(unsafe { self.as_foreign_unchecked() }) } else { None } }
+}
+
+/// Allows casting between generic Function pointers and specific variants.
+/// The only safe implementation of this trait is on *mut/const Function
+pub unsafe trait FnCastMut: FnCastable {
+	/// Upcast a Function to an Object
+	fn as_object_mut (self) -> *mut Object;
+
+	/// Cast a Function pointer to a pointer to a variant
+	/// # Safety
+	/// This does not check the FunctionKind discriminant of the Function header
+	unsafe fn as_procedure_unchecked_mut (self) -> *mut Procedure;
+
+	/// Cast a Function pointer to a pointer to a variant
+	/// # Safety
+	/// This does not check the FunctionKind discriminant of the Function header
+	unsafe fn as_closure_unchecked_mut (self) -> *mut Closure;
+
+	/// Cast a Function pointer to a pointer to a variant
+	/// # Safety
+	/// This does not check the FunctionKind discriminant of the Function header
+	unsafe fn as_foreign_unchecked_mut (self) -> *mut Foreign;
+
+	/// Cast a Function pointer to a pointer to a variant
+	fn as_procedure_mut (self) -> Option<*mut Procedure> { if self.get_kind() == FunctionKind::Procedure { Some(unsafe { self.as_procedure_unchecked_mut() }) } else { None } }
+
+	/// Cast a Function pointer to a pointer to a variant
+	fn as_closure_mut (self) -> Option<*mut Closure> { if self.get_kind() == FunctionKind::Closure { Some(unsafe { self.as_closure_unchecked_mut() }) } else { None } }
+	
+	/// Cast a Function pointer to a pointer to a variant
+	fn as_foreign_mut (self) -> Option<*mut Foreign> { if self.get_kind() == FunctionKind::Foreign { Some(unsafe { self.as_foreign_unchecked_mut() }) } else { None } }
+}
+
+unsafe impl FnCastable for *const Function {
+	fn get_kind (self) -> FunctionKind { unsafe { (*self).kind } }
+	fn get_type_id (self) -> TypeID { unsafe { (*self).object_header.type_id } }
+}
+
+unsafe impl FnCastable for *mut Function {
+	fn get_kind (self) -> FunctionKind { unsafe { (*self).kind } }
+	fn get_type_id (self) -> TypeID { unsafe { (*self).object_header.type_id } }
+}
+
+unsafe impl FnCast for *const Function {
+	fn as_object (self) -> *const Object { self as _ }
+	unsafe fn as_procedure_unchecked (self) -> *const Procedure { self as _ }
+	unsafe fn as_closure_unchecked (self) -> *const Closure { self as _ }
+	unsafe fn as_foreign_unchecked (self) -> *const Foreign { self as _ }
+}
+
+unsafe impl FnCast for *mut Function {
+	fn as_object (self) -> *const Object { self as _ }
+	unsafe fn as_procedure_unchecked (self) -> *const Procedure { self as _ }
+	unsafe fn as_closure_unchecked (self) -> *const Closure { self as _ }
+	unsafe fn as_foreign_unchecked (self) -> *const Foreign { self as _ }
+}
+
+unsafe impl FnCastMut for *mut Function {
+	fn as_object_mut (self) -> *mut Object { self as _ }
+	unsafe fn as_procedure_unchecked_mut (self) -> *mut Procedure { self as _ }
+	unsafe fn as_closure_unchecked_mut (self) -> *mut Closure { self as _ }
+	unsafe fn as_foreign_unchecked_mut (self) -> *mut Foreign { self as _ }
+}
+
+
+/// Allows casting between specific variants and generic Function pointers.
+/// The only safe implementation of this trait is on *mut/const Procedure, Closure and Foreign
+pub unsafe trait IntoFn: Sized + Copy {
+	/// Upcast a variant pointer into a Function pointer
+	fn as_function (self) -> *const Function;
+}
+
+/// Allows casting between specific variants and generic Function pointers.
+/// The only safe implementation of this trait is on *mut Procedure, Closure and Foreign
+pub unsafe trait IntoFnMut: Sized + Copy {
+	/// Upcast a variant pointer into a Function pointer
+	fn as_function_mut (self) -> *mut Function;
+}
+
+
+unsafe impl IntoFn for *const Procedure { fn as_function (self) -> *const Function { self as _ } }
+unsafe impl IntoFn for *const Closure { fn as_function (self) -> *const Function { self as _ } }
+unsafe impl IntoFn for *const Foreign { fn as_function (self) -> *const Function { self as _ } }
+
+unsafe impl IntoFn for *mut Procedure { fn as_function (self) -> *const Function { self as _ } }
+unsafe impl IntoFn for *mut Closure { fn as_function (self) -> *const Function { self as _ } }
+unsafe impl IntoFn for *mut Foreign { fn as_function (self) -> *const Function { self as _ } }
+
+unsafe impl IntoFnMut for *mut Procedure { fn as_function_mut (self) -> *mut Function { self as _ } }
+unsafe impl IntoFnMut for *mut Closure { fn as_function_mut (self) -> *mut Function { self as _ } }
+unsafe impl IntoFnMut for *mut Foreign { fn as_function_mut (self) -> *mut Function { self as _ } }
+
+
+unsafe impl<T> IntoObj for T where T: IntoFn { fn as_object (self) -> *const Object { self.as_function() as _ } }
+unsafe impl<T> IntoObjMut for T where T: IntoFnMut { fn as_object_mut (self) -> *mut Object { self.as_function_mut() as _ } }
 
 
 /// A dynamically sized array (vec) of Values of the same type
 #[repr(C)]
 pub struct Array {
 	/// Contains the object's type id and linked list pointer
-	pub header: Header,
+	pub header: Object,
 	/// Contains the actual value of the object
 	pub data: Vec<Value>
 }
@@ -286,7 +475,7 @@ impl Hash for Array {
 #[repr(C)]
 pub struct Map {
 	/// Contains the object's type id and linked list pointer
-	pub header: Header,
+	pub header: Object,
 	/// Contains the actual value of the object
 	pub data: HashMap<Value, Value>
 }
@@ -325,7 +514,7 @@ impl Hash for Map {
 #[repr(C)]
 pub struct String {
 	/// Contains the object's type id and linked list pointer
-	pub header: Header,
+	pub header: Object,
 	/// Contains the actual value of the object
 	pub data: std::string::String
 }
@@ -361,7 +550,7 @@ impl Hash for String {
 #[repr(C)]
 pub struct Record {
 	/// Contains the object's type id and linked list pointer
-	pub header: Header,
+	pub header: Object,
 	/// The number of fields associated with a Record
 	pub num_fields: usize,
 	/// The Values associated with each field
@@ -432,7 +621,7 @@ impl Hash for Record {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FunctionKind {
 	/// A free function or method, internal to the vm, with no internal state
-	Free,
+	Procedure,
 	/// A function internal to the vm, with its own bound internal state
 	Closure,
 	/// A native machine code function provided by the vm's host
@@ -442,18 +631,18 @@ pub enum FunctionKind {
 
 /// A wrapper around the standard Object header, providing specific information on the variant of a function
 #[repr(C)]
-pub struct FunctionHeader {
+pub struct Function {
 	/// Contains the object's type id and linked list pointer
-	pub object_header: Header,
+	pub object_header: Object,
 	/// Discriminant for the kind of the function containing to this header
 	pub kind: FunctionKind,
 }
 
-/// A free function
+/// A free standing procedure function
 #[repr(C)]
-pub struct Function {
+pub struct Procedure {
 	/// Contains the object's type id and linked list pointer
-	pub header: FunctionHeader,
+	pub header: Function,
 	/// Contains any constant values used in the bytecode of a Function.
 	/// This reduces redundancy and allows garbage collector tracking of object constants
 	pub constants: Vec<Value>,
@@ -465,9 +654,9 @@ pub struct Function {
 #[repr(C)]
 pub struct Closure {
 	/// Contains the object's type id and linked list pointer
-	pub header: FunctionHeader,
-	/// The function over which this Closure is formed
-	pub function: *mut Function,
+	pub header: Function,
+	/// The procedure function over which this Closure is formed
+	pub function: *mut Procedure,
 	/// An array of bindings to any captured Values used by a Closure
 	pub upvalues: Vec<*mut Value>,
 }
@@ -476,7 +665,7 @@ pub struct Closure {
 #[repr(C)]
 pub struct Foreign {
 	/// Contains the object's type id and linked list pointer
-	pub header: FunctionHeader,
+	pub header: Function,
 	/// Contains the actual value of the object
 	pub data: extern "C" fn (*mut Fiber) -> ()
 }
@@ -485,7 +674,7 @@ pub struct Foreign {
 #[repr(C)]
 pub struct Userdata {
 	/// Contains the object's type id and linked list pointer
-	pub header: Header,
+	pub header: Object,
 	/// Contains the actual value of the object
 	pub data: *mut dyn Any
 }
