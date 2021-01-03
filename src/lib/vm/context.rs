@@ -1,10 +1,10 @@
 //! Contains shared contextual information for all VM Fibers
 
 use super::{
-  TypeID,
-  TypeRegistry,
-  ModuleRegistry,
-  typeinfo
+	TypeID,
+	TypeRegistry,
+	ModuleRegistry,
+	typeinfo
 };
 
 /// Contains shared contextual information for all VM Fibers

@@ -1,0 +1,16 @@
+export function fib_memo (n: int) -> int {
+	local memo = map { 0 = 0, 1 = 1 }
+
+	function impl (n: int) -> int {
+		local r = memo[n]
+
+		if r == nil {
+			r = impl(n - 1) + impl(n - 2)
+			memo[n] = r
+		}
+
+		r
+	}
+
+	impl(n)
+}

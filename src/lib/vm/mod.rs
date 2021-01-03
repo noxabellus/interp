@@ -13,7 +13,7 @@ pub use self::{
 	value::Value,
 	stack::Stack,
 	typeinfo::{ TypeRegistry, TypeID, TypeInfo, },
-	global::{ GlobalRegistry, GlobalID, },
+	global::{ GlobalID, },
 	module::{ ModuleRegistry, ModuleID, Module },
 	context::Context,
 };

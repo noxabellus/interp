@@ -2,8 +2,10 @@
 
 use std::{ fmt, str };
 
-use super::common::{ Operator, Loc };
-use crate::vm::TypeID;
+use super::{
+	common::{ Operator, Loc },
+	ty::TypeRef,
+};
 
 
 /// Either a real (`f64`) or an integer (`i32`)
@@ -156,7 +158,7 @@ macro_rules! mk_node {
 			pub loc: Loc,
 			$(
 				/// The type of this value, if it has one that has been assigned
-				pub $ty: Option<TypeID>
+				pub $ty: Option<TypeRef>
 			)?
 		}
 

@@ -18,14 +18,14 @@ use std::{
 
 use super::{
 	common::*,
-	ast::{ Item, ItemData, TyExpr, TyExprData, ElementDecl },
+	ast::{ Item, ItemData, TyExpr, TyExprData, ElementDecl, Function },
+	ty::*,
 };
 
 use crate::{
 	utils::TryCollectVec,
 	vm::{
 		Context, GlobalID, Module, ModuleID, TypeID, TypeInfo, TypeRegistry,
-		context::BUILTIN_TYPE_ENTRIES,
 		module::ModuleBinding,
 		typeinfo::PrimitiveType,
 	}
@@ -45,110 +45,6 @@ pub struct Symbol {
 	pub loc: Option<Loc>
 }
 
-
-mod type_map {
-	use super::*;
-
-	#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-	pub struct TypeRef(pub(crate) u16);
-
-	impl TypeRef {
-		pub const MAX_TYPE_REFS: u16 = u16::MAX;
-	}
-
-	#[derive(Debug, Clone)]
-	pub enum Ty {
-		Array(TypeRef),
-		Map(TypeRef, TypeRef),
-		Record(Vec<String>, Vec<TypeRef>),
-		Function(Vec<TypeRef>, Option<TypeRef>),
-	}
-
-	#[derive(Debug)]
-	pub enum TypeEntry {
-		Existing(TypeID),
-		New(Ty),
-		Redirect(TypeRef),
-		Undefined,
-	}
-
-	impl TypeEntry {
-		pub fn resolve_redirects<'a> (&'a self, az: &'a Analyzer<'a>) -> &'a TypeEntry {
-			if let &TypeEntry::Redirect(next_ref) = self {
-				az.type_map.get(next_ref).resolve_redirects(az)
-			} else {
-				self
-			}
-		}
-	}
-
-
-	#[derive(Default, Debug)]
-	pub struct TypeMap {
-		pub types: Vec<TypeEntry>,
-	}
-
-	impl TypeMap {
-		pub fn new () -> Self {
-			let mut s = Self::default();
-			s.load_builtins();
-			s
-		}
-
-		pub fn ref_iter (&self) -> std::iter::Map<std::ops::Range<u16>, impl FnMut (u16) -> TypeRef> {
-			(0..self.types.len() as u16).map(TypeRef)
-		}
-		
-		pub fn create_entry (&mut self, entry: TypeEntry) -> Result<TypeRef, String> {
-			if self.types.len() < TypeRef::MAX_TYPE_REFS as usize {
-				let new_ref = TypeRef(self.types.len() as _);
-				
-				self.types.push(entry);
-
-				Ok(new_ref)
-			} else {
-				Err(format!("Cannot bind more than {} types in a module", TypeRef::MAX_TYPE_REFS))
-			}
-		}
-		
-		fn load_builtins (&mut self) {
-			for &(_, id) in BUILTIN_TYPE_ENTRIES {
-				self.types.push(TypeEntry::Existing(id));
-			}
-		}
-
-		pub(super) fn clear (&mut self) {
-			self.types.clear();
-			self.load_builtins();
-		}
-
-		
-		pub fn new_ty (&mut self, ty: Ty) -> Result<TypeRef, String> {
-			let tref = self.create_entry(TypeEntry::New(ty))?;
-			Ok(tref)
-		}
-
-		pub fn existing_ty (&mut self, id: TypeID) -> Result<TypeRef, String> {
-			self.create_entry(TypeEntry::Existing(id))
-		}
-
-		pub fn undefined_ty (&mut self) -> Result<TypeRef, String> {
-			self.create_entry(TypeEntry::Undefined)
-		}
-
-		pub fn get (&self, tref: TypeRef) -> &TypeEntry {
-			// Safety: the only safe way to create a TypeRef is thru TypeMap's interface, so indices inside are presumed always valid
-			unsafe { self.types.get_unchecked(tref.0 as usize) }
-		}
-
-		pub fn get_mut (&mut self, tref: TypeRef) -> &mut TypeEntry {
-			// Safety: the only safe way to create a TypeRef is thru TypeMap's interface, so indices inside are presumed always valid
-			unsafe { self.types.get_unchecked_mut(tref.0 as usize) }
-		}
-	}
-}
-
-pub use type_map::*;
 
 
 
@@ -280,7 +176,7 @@ impl<'c> Analyzer<'c> {
 
 		bind_top_level(self, items)?;
 
-		make_typedefs(self, items)?;
+		make_item_types(self, items)?;
 
 		finalize_types(self)?;
 		
@@ -320,7 +216,8 @@ macro_rules! passes {
 
 		passes!($($rest)*);
 	};
-	($(,)?) => {};
+	
+	() => {};
 }
 
 passes! {
@@ -388,8 +285,7 @@ passes! {
 		}
 	}
 
-
-	make_typedefs(az, item @ loc) => {
+	make_item_types(az, item @ loc) => {
 		match &mut item.data {
 			ItemData::Export(inner) => return this(az, inner),
 
@@ -400,17 +296,33 @@ passes! {
 
 				if let SymbolData::Type(existing_tref) = sym.data {
 					let entry = az.type_map.get_mut(existing_tref);
-					*entry = TypeEntry::Redirect(tref)
+					*entry = TypeEntry::Redirect(tref);
+
+					item.ty.replace(existing_tref);
 				} else {
 					// unreachable because shadowing would have already produced an error
 					unreachable!()
 				}
 			}
 
-			// Only processing type defs here
+			ItemData::Global(_, texpr, _) => {
+				let tref = build_ty(az, texpr)?;
+
+				item.ty.replace(tref);
+			}
+
+			ItemData::Function(_, Function{ data: (param_decls, result_texpr, _), .. }) => {
+				let param_tys = param_decls.iter().map(|ElementDecl { data: (_, texpr), .. }| build_ty(az, texpr)).try_collect_vec()?;
+				let return_ty = if let Some(texpr) = result_texpr { Some(build_ty(az, texpr)?) } else { None };
+				
+				let tref = az.type_map
+					.new_ty(Ty::Function(param_tys, return_ty))
+					.map_err(add_err_loc(item.loc))?;
+				
+				item.ty.replace(tref);
+			}
+
 			| ItemData::Import { .. }
-			| ItemData::Global { .. }
-			| ItemData::Function { .. }
 			=> { }
 		}
 	}
@@ -627,7 +539,7 @@ mod type_comparison {
 	}
 
 	fn compare_type_ref_to_id (az: &Analyzer, stack: &mut Vec<(TypeRef, TypeRef)>, a: TypeRef, b: TypeID) -> bool {
-		match az.type_map.get(a).resolve_redirects(az) {
+		match az.type_map.get(a).resolve_redirects(&az.type_map) {
 			TypeEntry::Existing(a) => *a == b,
 			TypeEntry::New(a) => compare_ty_to_typeinfo(az, stack, a, az.ctx.types.get_type(b).unwrap()),
 

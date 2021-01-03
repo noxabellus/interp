@@ -16,7 +16,7 @@ use zeta::{
 };
 
 fn main () -> io::Result<()> {
-	const TEST_FILE: &str = "./test_scripts/fold.z";
+	const TEST_FILE: &str = "./test_scripts/fib_memo.z";
 
 	let test_file = match std::fs::read_to_string(TEST_FILE) {
 		Ok(s) => s,
@@ -49,10 +49,11 @@ fn main () -> io::Result<()> {
 	let result = analyzer.analyze(&mut items);
 	
 	let mut analyzer_log = File::create("./local/log/sem.ron")?;
-	write!(analyzer_log, "{:#?}", analyzer)?;
+	writeln!(analyzer_log, "{:#?}", analyzer)?;
 
-	if let Err(e) = result {
-		panic!("{}", e.display(TEST_FILE));
+	match result {
+		Ok(module) => writeln!(analyzer_log, "\n{:#?}", module)?,
+		Err(e) => panic!("{}", e.display(TEST_FILE)),
 	}
 
 
