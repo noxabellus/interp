@@ -22,6 +22,7 @@ extern crate zeta_macros as macros;
 mod utils;
 mod valloc;
 
+pub mod source;
 
 pub mod vm;
 
