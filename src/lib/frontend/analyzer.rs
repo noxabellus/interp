@@ -195,6 +195,14 @@ pub fn analyze (ctx: &mut Context, items: &mut [Item<'_>]) -> AnalysisResult<Mod
 
 
 
+
+
+
+
+
+
+
+
 macro_rules! passes {
 	($pass_name:ident ($az:ident, $item:ident @ $loc:ident) => $body:block $($rest:tt)*) => {
 		fn $pass_name (az: &mut Analyzer, items: &mut [Item<'_>]) -> AnalysisResult {
@@ -331,6 +339,10 @@ passes! {
 
 
 
+
+
+
+
 fn build_ty (az: &mut Analyzer, texpr: &TyExpr<'_>) -> AnalysisResult<TypeRef> {
 	match &texpr.data {
 		TyExprData::Nil => {
@@ -441,6 +453,12 @@ fn build_ty (az: &mut Analyzer, texpr: &TyExpr<'_>) -> AnalysisResult<TypeRef> {
 		}
 	}
 }
+
+
+
+
+
+
 
 
 
@@ -578,6 +596,13 @@ use type_comparison::{
 	type_eq, type_eq_n,
 	type_eq_stack, type_eq_stack_n,
 };
+
+
+
+
+
+
+
 
 
 
